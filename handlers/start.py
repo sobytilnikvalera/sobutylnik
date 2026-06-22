@@ -6,7 +6,6 @@ from aiogram.fsm.context import FSMContext
 from database.db import get_user, create_user, update_user_profile, get_user_reviews
 from states.states import ProfileSetup
 from utils.keyboards import main_menu_kb, cancel_kb, skip_kb
-from utils.helpers import format_user_profile, stars
 
 router = Router()
 
@@ -16,14 +15,32 @@ WELCOME_TEXT = """
 Это сервис для поиска компании, чтобы скоротать вечер вместе.
 
 Как это работает:
-1️⃣ Создай объявление — укажи что есть выпить и где ты находишься
-2️⃣ Или найди чужое объявление рядом с тобой
-3️⃣ Договоритесь и встретьтесь
-4️⃣ После встречи оставьте отзывы друг о друге
+1️⃣ Создай анкету — загрузи фото, укажи что есть выпить
+2️⃣ Листай анкеты других людей рядом
+3️⃣ Ставь лайки ❤️ и получай взаимность
+4️⃣ Встречайтесь и оставляйте отзывы
 
 ⚠️ *Важно:* Сервис только для совершеннолетних (18+). Пей ответственно!
 """
 
+def get_stars(rating: float) -> str:
+    full = int(round(rating))
+    return "⭐" * full + "☆" * (5 - full)
+
+def format_profile(user: dict) -> str:
+    name = user.get("first_name", "Аноним")
+    username = f"@{user['username']}" if user.get("username") else "нет"
+    age = f"{user['age']} лет" if user.get("age") else "не указан"
+    bio = user.get("bio") or "не заполнено"
+    rating = user.get("rating", 0.0)
+    reviews_count = user.get("reviews_count", 0)
+
+    return (
+        f"👤 *{name}* ({username})\n"
+        f"🎂 Возраст: {age}\n"
+        f"📝 О себе: {bio}\n"
+        f"⭐ Рейтинг: {get_stars(rating)} ({rating:.1f} / {reviews_count} отзывов)"
+    )
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
@@ -38,8 +55,7 @@ async def cmd_start(message: Message, state: FSMContext):
         )
         await message.answer(
             WELCOME_TEXT,
-            parse_mode="Markdown",
-            reply_markup=main_menu_kb()
+            parse_mode="Markdown"
         )
         await message.answer(
             "Для начала давай немного познакомимся.\n\n"
@@ -53,7 +69,6 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="Markdown",
             reply_markup=main_menu_kb()
         )
-
 
 @router.message(ProfileSetup.waiting_age)
 async def process_age(message: Message, state: FSMContext):
@@ -81,7 +96,6 @@ async def process_age(message: Message, state: FSMContext):
     )
     await state.set_state(ProfileSetup.waiting_bio)
 
-
 @router.message(ProfileSetup.waiting_bio)
 async def process_bio(message: Message, state: FSMContext):
     if message.text == "◀️ Отмена":
@@ -99,10 +113,9 @@ async def process_bio(message: Message, state: FSMContext):
     await update_user_profile(message.from_user.id, age, bio)
     await state.clear()
     await message.answer(
-        "✅ Профиль сохранён! Теперь можешь создавать объявления или искать компанию.",
+        "✅ Профиль сохранён! Теперь можешь создавать анкеты или искать компанию.",
         reply_markup=main_menu_kb()
     )
-
 
 @router.message(F.text == "👤 Мой профиль")
 @router.message(Command("profile"))
@@ -113,33 +126,27 @@ async def cmd_profile(message: Message, state: FSMContext):
         await message.answer("Сначала зарегистрируйся — нажми /start")
         return
 
-    text = format_user_profile(user)
+    text = format_profile(user)
     reviews = await get_user_reviews(message.from_user.id)
 
     if reviews:
         text += "\n\n*Последние отзывы:*\n"
         for r in reviews[:3]:
             author = r.get("author_name", "Аноним")
-            text += f"\n{stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
+            text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
 
     await message.answer(text, parse_mode="Markdown", reply_markup=main_menu_kb())
 
-
-@router.message(F.text == "❓ Помощь")
-@router.message(Command("help"))
-async def cmd_help(message: Message):
-    help_text = (
-        "🍺 *Собутыльник — помощь*\n\n"
-        "📢 *Создать объявление* — расскажи что у тебя есть и где ты\n"
-        "🔍 *Найти собутыльника* — посмотри объявления рядом\n"
-        "📋 *Мои объявления* — управляй своими объявлениями\n"
-        "🤝 *Мои встречи* — история встреч и отзывы\n"
-        "👤 *Мой профиль* — твой профиль и рейтинг\n\n"
-        "⚠️ *Правила:*\n"
-        "• Только для совершеннолетних (18+)\n"
-        "• Отзывы нельзя редактировать или удалять\n"
-        "• Объявления автоматически истекают через 6 часов\n"
-        "• Уважай других участников\n\n"
-        "Пей ответственно! 🥃"
-    )
-    await message.answer(help_text, parse_mode="Markdown", reply_markup=main_menu_kb())
+@router.message(F.text == "⭐ Мои отзывы")
+async def cmd_my_reviews(message: Message):
+    reviews = await get_user_reviews(message.from_user.id)
+    if not reviews:
+        await message.answer("У тебя пока нет отзывов.")
+        return
+    
+    text = "⭐ *Твои отзывы:*\n"
+    for r in reviews:
+        author = r.get("author_name", "Аноним")
+        text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
+    
+    await message.answer(text, parse_mode="Markdown")

@@ -106,6 +106,27 @@ async def create_user(user_id: int, username: str, first_name: str) -> None:
         )
         await db.commit()
 
+async def update_user_profile(user_id: int, age: Optional[int], bio: Optional[str]) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET age = ?, bio = ? WHERE id = ?",
+            (age, bio, user_id)
+        )
+        await db.commit()
+
+async def get_user_reviews(user_id: int) -> List[Dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT r.*, u.first_name as author_name 
+            FROM reviews r
+            JOIN users u ON r.from_user_id = u.id
+            WHERE r.to_user_id = ?
+            ORDER BY r.created_at DESC
+        """, (user_id,)) as cur:
+            rows = await cur.fetchall()
+            return [dict(row) for row in rows]
+
 # ─── LISTINGS ─────────────────────────────────────────────────────────────────
 
 async def create_listing(
@@ -201,4 +222,26 @@ async def create_review(meeting_id: int, from_user_id: int, to_user_id: int, rat
             INSERT INTO reviews (meeting_id, from_user_id, to_user_id, rating, text)
             VALUES (?, ?, ?, ?, ?)
         """, (meeting_id, from_user_id, to_user_id, rating, text))
+        
+        # Обновляем средний рейтинг пользователя
+        async with db.execute("SELECT AVG(rating), COUNT(id) FROM reviews WHERE to_user_id = ?", (to_user_id,)) as cur:
+            row = await cur.fetchone()
+            if row:
+                avg_rating, count = row
+                await db.execute(
+                    "UPDATE users SET rating = ?, reviews_count = ? WHERE id = ?",
+                    (avg_rating, count, to_user_id)
+                )
         await db.commit()
+
+async def get_listing(listing_id: int) -> Optional[Dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
+            FROM listings l
+            JOIN users u ON l.user_id = u.id
+            WHERE l.id = ?
+        """, (listing_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
