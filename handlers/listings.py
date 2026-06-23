@@ -81,20 +81,47 @@ async def process_location(message: Message, state: FSMContext):
 
 @router.message(CreateListing.waiting_max_people)
 async def process_max_people(message: Message, state: FSMContext):
+    if message.text == "◀️ Отмена":
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_kb())
+        return
+
     try:
-        count = int(message.text)
-        await state.update_data(max_people=count)
-        data = await state.get_data()
-        
+        count = int(message.text.strip())
+    except ValueError:
+        await message.answer("Пожалуйста, введи только число (например: 2).")
+        return
+
+    await state.update_data(max_people=count)
+    data = await state.get_data()
+    
+    try:
         await message.answer_photo(
             photo=data['photo_id'],
-            caption=f"📋 *Предпросмотр:*\n\n*{data['title']}*\n{data['description']}\n\n🍾 {data['drinks']}\n👥 Мест: {count}",
+            caption=(
+                f"📋 *Предпросмотр вашей анкеты:*\n\n"
+                f"📌 *{data['title']}*\n"
+                f"📝 {data['description']}\n\n"
+                f"🍾 *Выпивка:* {data['drinks']}\n"
+                f"👥 *Мест:* {count}\n\n"
+                f"Всё верно? Нажми «Опубликовать», чтобы анкету увидели другие."
+            ),
             parse_mode="Markdown",
             reply_markup=confirm_kb()
         )
         await state.set_state(CreateListing.waiting_confirm)
-    except:
-        await message.answer("Введи число!")
+    except Exception as e:
+        # Если фото не отправляется, пробуем текстом
+        await message.answer(
+            f"📋 *Предпросмотр (без фото):*\n\n"
+            f"📌 *{data['title']}*\n"
+            f"📝 {data['description']}\n\n"
+            f"🍾 *Выпивка:* {data['drinks']}\n"
+            f"👥 *Мест:* {count}",
+            parse_mode="Markdown",
+            reply_markup=confirm_kb()
+        )
+        await state.set_state(CreateListing.waiting_confirm)
 
 @router.callback_query(F.data == "listing_confirm", CreateListing.waiting_confirm)
 async def confirm_listing_handler(callback: CallbackQuery, state: FSMContext):
