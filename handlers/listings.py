@@ -40,7 +40,13 @@ async def process_title(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("Отменено.", reply_markup=main_menu_kb())
         return
-    await state.update_data(title=message.text.strip()[:50])
+    
+    text = message.text.strip()
+    if len(text.split()) < 3:
+        await message.answer("⚠️ Заголовок слишком короткий. Напиши хотя бы 3 слова!")
+        return
+
+    await state.update_data(title=text[:50])
     await state.set_state(CreateListing.waiting_description)
     await message.answer("Теперь добавь описание — что планируете делать?")
 
@@ -50,7 +56,13 @@ async def process_description(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("Отменено.", reply_markup=main_menu_kb())
         return
-    await state.update_data(description=message.text.strip()[:300])
+    
+    text = message.text.strip()
+    if len(text.split()) < 3:
+        await message.answer("⚠️ Описание слишком короткое. Напиши хотя бы 3 слова!")
+        return
+
+    await state.update_data(description=text[:300])
     await state.set_state(CreateListing.waiting_drinks)
     await message.answer("Что по напиткам? (например: Jameson, светлое нефильтрованное)")
 
@@ -175,7 +187,9 @@ async def show_next_anketa(message, state: FSMContext):
             await message.answer(text, reply_markup=main_menu_kb())
         return
 
-    dist = get_distance_text(lat, lon, anketa['latitude'], anketa['longitude'])
+    from utils.helpers import calculate_distance
+    d = calculate_distance(lat, lon, anketa['latitude'], anketa['longitude'])
+    dist = get_distance_text(d)
     text = (
         f"🔥 *{anketa['title']}*\n\n"
         f"{anketa['description']}\n\n"
