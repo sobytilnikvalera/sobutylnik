@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def main():
     # Используем токен напрямую для Railway, если переменная окружения не задана
-    token = os.getenv("BOT_TOKEN", "8879403729:AAHFhV7kIzULCF17vH3IgijSqiXWM6gDqJU")
+    token = os.getenv("BOT_TOKEN", "8879403729:AAE1ICMxtObZnG0cKN_zuLY52FpbRtYmdYw")
     
     # Инициализация БД
     await init_db()
