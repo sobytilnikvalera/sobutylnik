@@ -38,7 +38,10 @@ def swipe_kb(listing_id):
             InlineKeyboardButton(text="👎 Мимо", callback_data=f"swipe:dislike:{listing_id}"),
             InlineKeyboardButton(text="❤️ Лайк", callback_data=f"swipe:like:{listing_id}")
         ],
-        [InlineKeyboardButton(text="🛑 Хватит на сегодня", callback_data="swipe:close")]
+        [
+            InlineKeyboardButton(text="🚩 Пожаловаться", callback_data=f"report:{listing_id}"),
+            InlineKeyboardButton(text="🛑 Хватит на сегодня", callback_data="swipe:close")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 

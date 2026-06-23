@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Правильные импорты из папок
 from database.db import init_db, expire_old_listings
-from handlers import start, listings, meetings, reviews
+from handlers import start, listings, meetings, reviews, admin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,8 +17,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def main():
-    # Используем токен напрямую для Railway, если переменная окружения не задана
-    token = os.getenv("BOT_TOKEN", "8879403729:AAE1ICMxtObZnG0cKN_zuLY52FpbRtYmdYw")
+    # Безопасное получение токена
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        # Резервный вариант, если забыли прописать в Railway
+        token = "8879403729:AAE1ICMxtObZnG0cKN_zuLY52FpbRtYmdYw"
     
     # Инициализация БД
     await init_db()
@@ -33,6 +36,7 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
 
     # Регистрация роутеров
+    dp.include_router(admin.router) # Админка первая, чтобы перехватывать команды
     dp.include_router(start.router)
     dp.include_router(listings.router)
     dp.include_router(meetings.router)

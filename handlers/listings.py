@@ -254,6 +254,29 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
     await show_next_anketa(callback, state)
     await callback.answer()
 
+@router.callback_query(F.data.startswith("report:"))
+async def handle_report(callback: CallbackQuery):
+    listing_id = int(callback.data.split(":")[1])
+    anketa = await get_listing(listing_id)
+    
+    if anketa:
+        from handlers.admin import ADMIN_IDS
+        for admin_id in ADMIN_IDS:
+            try:
+                await callback.bot.send_message(
+                    admin_id,
+                    f"🚩 *ЖАЛОБА на анкету!*\n\n"
+                    f"От кого: {callback.from_user.first_name} (ID: `{callback.from_user.id}`)\n"
+                    f"На кого: {anketa['first_name']} (ID: `{anketa['user_id']}`)\n"
+                    f"Анкета ID: `{listing_id}`\n"
+                    f"Заголовок: {anketa['title']}",
+                    parse_mode="Markdown"
+                )
+            except: pass
+    
+    await callback.answer("Жалоба отправлена админу. Спасибо!", show_alert=True)
+    await show_next_anketa(callback, None)
+
 # ─── МОЙ ПРОФИЛЬ (АНКЕТА) ─────────────────────────────────────────────────────
 
 @router.message(F.text == "😎 Мой профиль")
