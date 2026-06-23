@@ -15,3 +15,11 @@ def filter_by_radius(listings, lat, lon, radius_km=10.0):
             l['distance'] = d
             result.append(l)
     return sorted(result, key=lambda x: x['distance'])
+
+def stars(rating):
+    """Преобразование числового рейтинга в эмодзи звезд."""
+    if not rating:
+        return "Нет оценок"
+    full_stars = int(rating)
+    empty_stars = 5 - full_stars
+    return "⭐" * full_stars + "🔘" * empty_stars
