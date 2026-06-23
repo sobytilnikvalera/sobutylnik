@@ -3,6 +3,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 import os
+import asyncio
 
 from database.db import DB_PATH
 import aiosqlite
@@ -10,7 +11,7 @@ import aiosqlite
 router = Router()
 
 # Твой ID. Я пропишу его как список, можно будет добавить еще админов.
-ADMIN_IDS = [8879403729, 642848466] # Я добавил ID из твоего токена и примерный. Замени на свой!
+ADMIN_IDS = [683764730] # Твой актуальный ID администратора
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
