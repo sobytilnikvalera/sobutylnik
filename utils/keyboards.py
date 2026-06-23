@@ -5,8 +5,8 @@ from aiogram.types import (
 
 def main_menu_kb():
     kb = [
-        [KeyboardButton(text="📢 Создать анкету"), KeyboardButton(text="🔍 Искать компанию")],
-        [KeyboardButton(text="📋 Моя анкета"), KeyboardButton(text="⭐ Мои отзывы")],
+        [KeyboardButton(text="🍻 Замутить движ"), KeyboardButton(text="🕵️ Найти вписку")],
+        [KeyboardButton(text="😎 Мой профиль"), KeyboardButton(text="📜 Репутация")],
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -20,31 +20,31 @@ def skip_kb():
 
 def location_kb():
     kb = [
-        [KeyboardButton(text="📍 Отправить геолокацию", request_location=True)],
+        [KeyboardButton(text="📍 Где я сейчас", request_location=True)],
         [KeyboardButton(text="◀️ Отмена")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def confirm_kb():
     kb = [
-        [InlineKeyboardButton(text="✅ Опубликовать", callback_data="listing_confirm")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="listing_cancel")]
+        [InlineKeyboardButton(text="✅ Погнали!", callback_data="listing_confirm")],
+        [InlineKeyboardButton(text="❌ Передумал", callback_data="listing_cancel")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def swipe_kb(listing_id):
     kb = [
         [
-            InlineKeyboardButton(text="👎", callback_data=f"swipe:dislike:{listing_id}"),
-            InlineKeyboardButton(text="❤️", callback_data=f"swipe:like:{listing_id}")
+            InlineKeyboardButton(text="👎 Мимо", callback_data=f"swipe:dislike:{listing_id}"),
+            InlineKeyboardButton(text="❤️ Лайк", callback_data=f"swipe:like:{listing_id}")
         ],
-        [InlineKeyboardButton(text="🛑 Закончить просмотр", callback_data="swipe:close")]
+        [InlineKeyboardButton(text="🛑 Хватит на сегодня", callback_data="swipe:close")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def my_listing_actions_kb(listing_id):
     kb = [
-        [InlineKeyboardButton(text="🔴 Удалить анкету", callback_data=f"listing_close:{listing_id}")]
+        [InlineKeyboardButton(text="🔴 Удалить движ", callback_data=f"listing_close:{listing_id}")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 

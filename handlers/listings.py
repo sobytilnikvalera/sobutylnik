@@ -4,51 +4,35 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 
 from database.db import (
-    get_user, create_listing, get_user_active_listing, 
-    close_listing, get_next_listing_for_user, add_like
+    create_listing, get_user_active_listing, 
+    get_next_listing_for_user, add_like, get_listing, close_listing
 )
-from states.states import CreateListing, BrowseAnketas
+from states.states import CreateListing
 from utils.keyboards import (
-    main_menu_kb, location_kb, cancel_kb, skip_kb, 
+    main_menu_kb, cancel_kb, location_kb, 
     confirm_kb, swipe_kb, my_listing_actions_kb
 )
-from utils.helpers import calculate_distance
+from utils.helpers import get_distance_text
 
 router = Router()
 
-# ─── СОЗДАНИЕ АНКЕТЫ ──────────────────────────────────────────────────────────
+# ─── СОЗДАНИЕ АНКЕТЫ (ЗАМУТИТЬ ДВИЖ) ──────────────────────────────────────────
 
-@router.message(F.text == "📢 Создать анкету")
+@router.message(F.text == "🍻 Замутить движ")
 async def cmd_create_listing(message: Message, state: FSMContext):
-    user = await get_user(message.from_user.id)
-    if not user:
-        await message.answer("Сначала нажми /start для регистрации.")
-        return
-
     active = await get_user_active_listing(message.from_user.id)
     if active:
-        await message.answer("У тебя уже есть активная анкета! Удали её, чтобы создать новую.")
+        await message.answer(
+            "У тебя уже есть активный движ! Сначала удали старый в профиле.",
+            reply_markup=main_menu_kb()
+        )
         return
 
-    await state.clear()
+    await state.set_state(CreateListing.waiting_title)
     await message.answer(
-        "📸 *Шаг 1/6: Пришли фото.*\n\n"
-        "Это может быть твой накрытый стол, напитки или просто селфи.",
-        parse_mode="Markdown",
+        "Придумай крутой заголовок для твоего движа!\nНапример: «Виски-пати на районе» или «Пиво и плойка»",
         reply_markup=cancel_kb()
     )
-    await state.set_state(CreateListing.waiting_photo)
-
-@router.message(CreateListing.waiting_photo, F.photo)
-async def process_photo(message: Message, state: FSMContext):
-    photo_id = message.photo[-1].file_id
-    await state.update_data(photo_id=photo_id)
-    await message.answer(
-        "✍️ *Шаг 2/6: Заголовок анкеты.*\n\n"
-        "Например: «Виски и пицца» или «Ищу компанию на вечер»",
-        parse_mode="Markdown"
-    )
-    await state.set_state(CreateListing.waiting_title)
 
 @router.message(CreateListing.waiting_title)
 async def process_title(message: Message, state: FSMContext):
@@ -56,28 +40,44 @@ async def process_title(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("Отменено.", reply_markup=main_menu_kb())
         return
-    await state.update_data(title=message.text[:100])
-    await message.answer("📝 *Шаг 3/6: Описание.*\n\nРасскажи подробнее, где ты и какая компания нужна.", parse_mode="Markdown", reply_markup=skip_kb())
+    await state.update_data(title=message.text.strip()[:50])
     await state.set_state(CreateListing.waiting_description)
+    await message.answer("Теперь добавь описание — что планируете делать?")
 
 @router.message(CreateListing.waiting_description)
 async def process_description(message: Message, state: FSMContext):
-    desc = "" if message.text == "⏭ Пропустить" else message.text
-    await state.update_data(description=desc)
-    await message.answer("🍾 *Шаг 4/6: Что из выпивки?*", parse_mode="Markdown", reply_markup=cancel_kb())
+    if message.text == "◀️ Отмена":
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_kb())
+        return
+    await state.update_data(description=message.text.strip()[:300])
     await state.set_state(CreateListing.waiting_drinks)
+    await message.answer("Что по напиткам? (например: Jameson, светлое нефильтрованное)")
 
 @router.message(CreateListing.waiting_drinks)
 async def process_drinks(message: Message, state: FSMContext):
-    await state.update_data(drinks=message.text)
-    await message.answer("📍 *Шаг 5/6: Твоя локация.*\n\nНажми кнопку ниже, чтобы люди рядом могли тебя найти.", parse_mode="Markdown", reply_markup=location_kb())
+    if message.text == "◀️ Отмена":
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_kb())
+        return
+    await state.update_data(drinks=message.text.strip()[:100])
+    await state.set_state(CreateListing.waiting_photo)
+    await message.answer("Скинь фотку твоего стола или компании! 📸")
+
+@router.message(CreateListing.waiting_photo, F.photo)
+async def process_photo(message: Message, state: FSMContext):
+    photo_id = message.photo[-1].file_id
+    await state.update_data(photo_id=photo_id)
     await state.set_state(CreateListing.waiting_location)
+    await message.answer("Где ты находишься? Скинь геолокацию, чтобы тебя нашли свои.", reply_markup=location_kb())
 
 @router.message(CreateListing.waiting_location, F.location)
 async def process_location(message: Message, state: FSMContext):
-    await state.update_data(lat=message.location.latitude, lon=message.location.longitude)
-    await message.answer("👥 *Шаг 6/6: Сколько человек ищешь?* (введи число)", parse_mode="Markdown", reply_markup=cancel_kb())
+    lat = message.location.latitude
+    lon = message.location.longitude
+    await state.update_data(lat=lat, lon=lon)
     await state.set_state(CreateListing.waiting_max_people)
+    await message.answer("Сколько человек готов принять? (введи число)", reply_markup=cancel_kb())
 
 @router.message(CreateListing.waiting_max_people)
 async def process_max_people(message: Message, state: FSMContext):
@@ -89,39 +89,32 @@ async def process_max_people(message: Message, state: FSMContext):
     try:
         count = int(message.text.strip())
     except ValueError:
-        await message.answer("Пожалуйста, введи только число (например: 2).")
+        await message.answer("Пожалуйста, введи только число.")
         return
 
     await state.update_data(max_people=count)
     data = await state.get_data()
     
+    preview_text = (
+        f"📋 *Твой будущий движ:*\n\n"
+        f"📌 *{data['title']}*\n"
+        f"📝 {data['description']}\n\n"
+        f"🍾 *Напитки:* {data['drinks']}\n"
+        f"👥 *Мест:* {count}\n\n"
+        f"Всё чётко? Публикуем?"
+    )
+    
     try:
         await message.answer_photo(
             photo=data['photo_id'],
-            caption=(
-                f"📋 *Предпросмотр вашей анкеты:*\n\n"
-                f"📌 *{data['title']}*\n"
-                f"📝 {data['description']}\n\n"
-                f"🍾 *Выпивка:* {data['drinks']}\n"
-                f"👥 *Мест:* {count}\n\n"
-                f"Всё верно? Нажми «Опубликовать», чтобы анкету увидели другие."
-            ),
+            caption=preview_text,
             parse_mode="Markdown",
             reply_markup=confirm_kb()
         )
-        await state.set_state(CreateListing.waiting_confirm)
-    except Exception as e:
-        # Если фото не отправляется, пробуем текстом
-        await message.answer(
-            f"📋 *Предпросмотр (без фото):*\n\n"
-            f"📌 *{data['title']}*\n"
-            f"📝 {data['description']}\n\n"
-            f"🍾 *Выпивка:* {data['drinks']}\n"
-            f"👥 *Мест:* {count}",
-            parse_mode="Markdown",
-            reply_markup=confirm_kb()
-        )
-        await state.set_state(CreateListing.waiting_confirm)
+    except:
+        await message.answer(preview_text, parse_mode="Markdown", reply_markup=confirm_kb())
+    
+    await state.set_state(CreateListing.waiting_confirm)
 
 @router.callback_query(F.data == "listing_confirm", CreateListing.waiting_confirm)
 async def confirm_listing_handler(callback: CallbackQuery, state: FSMContext):
@@ -135,60 +128,84 @@ async def confirm_listing_handler(callback: CallbackQuery, state: FSMContext):
         photo_id=data['photo_id'],
         latitude=data['lat'],
         longitude=data['lon'],
-        location_name="",
+        location_name="Рядом",
         max_people=data['max_people']
     )
     await state.clear()
-    await callback.message.answer("✅ Анкета опубликована! Теперь тебя видят другие.", reply_markup=main_menu_kb())
+    await callback.message.answer("🚀 *Движ опубликован!* Жди лайков.", parse_mode="Markdown", reply_markup=main_menu_kb())
+    await callback.message.delete()
     await callback.answer()
 
-# ─── ПРОСМОТР АНКЕТ (СВАЙПЫ) ──────────────────────────────────────────────────
+@router.callback_query(F.data == "listing_cancel", CreateListing.waiting_confirm)
+async def cancel_listing_handler(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("Отменено.", reply_markup=main_menu_kb())
+    await callback.message.delete()
+    await callback.answer()
 
-@router.message(F.text == "🔍 Искать компанию")
-async def cmd_browse(message: Message, state: FSMContext):
-    await message.answer("📍 Для поиска нужно отправить свою геолокацию.", reply_markup=location_kb())
+# ─── ПОИСК АНКЕТ (НАЙТИ ВПИСКУ) ────────────────────────────────────────────────
 
-@router.message(F.location)
-async def handle_location_for_browse(message: Message, state: FSMContext):
-    # Если мы в процессе создания анкеты — игнорируем здесь
-    if await state.get_state() == CreateListing.waiting_location:
-        return
-        
-    lat, lon = message.location.latitude, message.location.longitude
-    await state.update_data(user_lat=lat, user_lon=lon)
+@router.message(F.text == "🕵️ Найти вписку")
+async def cmd_search(message: Message, state: FSMContext):
+    await message.answer("Где ищем? Скинь свою локацию.", reply_markup=location_kb())
+    await state.set_state(CreateListing.waiting_search_location)
+
+@router.message(CreateListing.waiting_search_location, F.location)
+async def process_search_location(message: Message, state: FSMContext):
+    await state.update_data(search_lat=message.location.latitude, search_lon=message.location.longitude)
     await show_next_anketa(message, state)
 
-async def show_next_anketa(message: Message, state: FSMContext):
+async def show_next_anketa(message, state: FSMContext):
     data = await state.get_data()
-    user_id = message.chat.id
+    lat = data.get('search_lat')
+    lon = data.get('search_lon')
     
-    anketa = await get_next_listing_for_user(user_id, data.get('user_lat'), data.get('user_lon'))
-    
-    if not anketa:
-        await message.answer("😔 Анкеты закончились! Попробуй позже или расширь поиск.", reply_markup=main_menu_kb())
-        await state.clear()
+    if not lat: # Если начали поиск без локации
+        await message.answer("Сначала скинь локацию!", reply_markup=location_kb())
         return
 
-    dist = calculate_distance(data.get('user_lat'), data.get('user_lon'), anketa['latitude'], anketa['longitude'])
+    anketa = await get_next_listing_for_user(message.from_user.id, lat, lon)
     
+    if not anketa:
+        text = "😢 Больше движух рядом нет. Попробуй позже или замути свой!"
+        if isinstance(message, CallbackQuery):
+            await message.message.answer(text, reply_markup=main_menu_kb())
+            await message.message.delete()
+        else:
+            await message.answer(text, reply_markup=main_menu_kb())
+        return
+
+    dist = get_distance_text(lat, lon, anketa['latitude'], anketa['longitude'])
     text = (
-        f"*{anketa['title']}*\n"
+        f"🔥 *{anketa['title']}*\n\n"
         f"{anketa['description']}\n\n"
         f"🍾 {anketa['drinks']}\n"
-        f"📍 Расстояние: {dist:.1f} км\n"
-        f"⭐ Рейтинг: {anketa['rating']} ({anketa['reviews_count']} отз.)"
+        f"👥 Мест: {anketa['max_people']}\n"
+        f"📍 {dist} от тебя\n"
+        f"👤 {anketa['first_name']} (⭐ {anketa['rating']:.1f})"
     )
-    
+
     if isinstance(message, CallbackQuery):
-        await message.message.answer_photo(photo=anketa['photo_id'], caption=text, parse_mode="Markdown", reply_markup=swipe_kb(anketa['id']))
+        # Удаляем старую и шлем новую
         await message.message.delete()
+        await message.message.answer_photo(
+            photo=anketa['photo_id'], 
+            caption=text, 
+            parse_mode="Markdown", 
+            reply_markup=swipe_kb(anketa['id'])
+        )
     else:
-        await message.answer_photo(photo=anketa['photo_id'], caption=text, parse_mode="Markdown", reply_markup=swipe_kb(anketa['id']))
+        await message.answer_photo(
+            photo=anketa['photo_id'], 
+            caption=text, 
+            parse_mode="Markdown", 
+            reply_markup=swipe_kb(anketa['id'])
+        )
 
 @router.callback_query(F.data == "swipe:close")
 async def close_swipe(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.answer("Просмотр завершен.", reply_markup=main_menu_kb())
+    await callback.message.answer("Поиск завершен.", reply_markup=main_menu_kb())
     try:
         await callback.message.delete()
     except:
@@ -198,19 +215,12 @@ async def close_swipe(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("swipe:"))
 async def handle_swipe(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split(":")
-    if len(parts) < 3:
-        await callback.answer()
-        return
-        
     action = parts[1]
     listing_id = int(parts[2])
     
-    # Получаем информацию об анкете, чтобы знать владельца
-    from database.db import get_listing
     anketa = await get_listing(listing_id)
-    
     if not anketa:
-        await callback.answer("Анкета больше не активна.")
+        await callback.answer("Этот движ уже закончился.")
         await show_next_anketa(callback, state)
         return
 
@@ -219,56 +229,60 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
     
     if is_match:
         await callback.message.answer(
-            f"🎉 *Взаимная симпатия!*\n\n"
-            f"Владелец анкеты: *{anketa['first_name']}*\n"
-            f"Можешь написать ему: @{anketa['username'] or 'id' + str(anketa['user_id'])}", 
+            f"🎉 *ЕСТЬ КОНТАКТ!*\n\n"
+            f"Тебе понравился движ *{anketa['title']}*, а ты понравился им!\n"
+            f"Пиши организатору: @{anketa['username'] or 'id'+str(anketa['user_id'])}", 
             parse_mode="Markdown"
         )
-        # Уведомляем владельца
         try:
             await callback.bot.send_message(
                 anketa['user_id'], 
-                f"❤️ *У тебя взаимная симпатия!*\n\n"
-                f"Пользователь {callback.from_user.first_name} лайкнул тебя в ответ.\n"
-                f"Связь: @{callback.from_user.username or 'id' + str(callback.from_user.id)}",
+                f"❤️ *У тебя новый матч!*\n\n"
+                f"Пользователь {callback.from_user.first_name} хочет на твой движ.\n"
+                f"Связь: @{callback.from_user.username or 'id'+str(callback.from_user.id)}",
                 parse_mode="Markdown"
             )
-        except:
-            pass
+        except: pass
     elif is_like:
         try:
             await callback.bot.send_message(
                 anketa['user_id'], 
-                f"❤️ Кто-то лайкнул твою анкету! Зайди в поиск, чтобы найти взаимность."
+                f"❤️ Кто-то лайкнул твой движ! Зайди в поиск, чтобы найти взаимность."
             )
-        except:
-            pass
+        except: pass
 
     await show_next_anketa(callback, state)
     await callback.answer()
 
-# ─── МОЯ АНКЕТА ───────────────────────────────────────────────────────────────
+# ─── МОЙ ПРОФИЛЬ (АНКЕТА) ─────────────────────────────────────────────────────
 
-@router.message(F.text == "📋 Моя анкета")
+@router.message(F.text == "😎 Мой профиль")
 async def cmd_my_anketa(message: Message):
     anketa = await get_user_active_listing(message.from_user.id)
     if not anketa:
-        await message.answer("У тебя нет активной анкеты.", reply_markup=main_menu_kb())
+        await message.answer("У тебя пока нет активного движа. Замути его! 🍻", reply_markup=main_menu_kb())
         return
     
     text = (
-        f"📋 *Твоя активная анкета:*\n\n"
-        f"*{anketa['title']}*\n"
+        f"😎 *Твой текущий движ:*\n\n"
+        f"📌 *{anketa['title']}*\n"
         f"{anketa['description']}\n\n"
         f"🍾 {anketa['drinks']}\n"
-        f"👥 Мест: {anketa['max_people']}"
+        f"👥 Мест: {anketa['max_people']}\n"
+        f"📅 Создан: {anketa['created_at']}"
     )
-    await message.answer_photo(photo=anketa['photo_id'], caption=text, parse_mode="Markdown", reply_markup=my_listing_actions_kb(anketa['id']))
+    
+    await message.answer_photo(
+        photo=anketa['photo_id'], 
+        caption=text, 
+        parse_mode="Markdown", 
+        reply_markup=my_listing_actions_kb(anketa['id'])
+    )
 
 @router.callback_query(F.data.startswith("listing_close:"))
 async def handle_close_listing(callback: CallbackQuery):
     listing_id = int(callback.data.split(":")[1])
     await close_listing(listing_id)
-    await callback.message.answer("🔴 Анкета удалена.")
+    await callback.message.answer("Твой движ удален. Можешь замутить новый! 🍻", reply_markup=main_menu_kb())
     await callback.message.delete()
     await callback.answer()
