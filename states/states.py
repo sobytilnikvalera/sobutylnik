@@ -11,6 +11,7 @@ class CreateListing(StatesGroup):
     waiting_drinks = State()
     waiting_snacks = State()
     waiting_location = State()
+    waiting_search_location = State()
     waiting_max_people = State()
     waiting_confirm = State()
 
