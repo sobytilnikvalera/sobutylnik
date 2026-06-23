@@ -23,3 +23,9 @@ def stars(rating):
     full_stars = int(rating)
     empty_stars = 5 - full_stars
     return "⭐" * full_stars + "🔘" * empty_stars
+
+def get_distance_text(dist):
+    """Красивое форматирование расстояния."""
+    if dist < 1:
+        return f"{int(dist * 1000)} м от тебя"
+    return f"{dist:.1f} км от тебя"
