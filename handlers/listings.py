@@ -36,35 +36,38 @@ async def cmd_create_listing(message: Message, state: FSMContext):
 
 @router.message(CreateListing.waiting_title)
 async def process_title(message: Message, state: FSMContext):
+    if not message.text: return
     if message.text == "◀️ Отмена":
         await state.clear()
         await message.answer("Отменено.", reply_markup=main_menu_kb())
         return
     
     text = message.text.strip()
-    if len(text.split()) < 3:
-        await message.answer("⚠️ Заголовок слишком короткий. Напиши хотя бы 3 слова!")
+    # Упростим валидацию до 5 символов, чтобы не было проблем с подсчетом слов
+    if len(text) < 5:
+        await message.answer("⚠️ Слишком коротко. Напиши чуть подробнее!")
         return
 
     await state.update_data(title=text[:50])
     await state.set_state(CreateListing.waiting_description)
-    await message.answer("Теперь добавь описание — что планируете делать?")
+    await message.answer("Теперь добавь описание — что планируете делать?", reply_markup=cancel_kb())
 
 @router.message(CreateListing.waiting_description)
 async def process_description(message: Message, state: FSMContext):
+    if not message.text: return
     if message.text == "◀️ Отмена":
         await state.clear()
         await message.answer("Отменено.", reply_markup=main_menu_kb())
         return
     
     text = message.text.strip()
-    if len(text.split()) < 3:
-        await message.answer("⚠️ Описание слишком короткое. Напиши хотя бы 3 слова!")
+    if len(text) < 10:
+        await message.answer("⚠️ Описание слишком короткое. Расскажи подробнее (хотя бы пару слов)!")
         return
 
     await state.update_data(description=text[:300])
     await state.set_state(CreateListing.waiting_drinks)
-    await message.answer("Что по напиткам? (например: Jameson, светлое нефильтрованное)")
+    await message.answer("Что по напиткам? (например: Jameson, светлое нефильтрованное)", reply_markup=cancel_kb())
 
 @router.message(CreateListing.waiting_drinks)
 async def process_drinks(message: Message, state: FSMContext):
