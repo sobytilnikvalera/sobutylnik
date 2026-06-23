@@ -245,3 +245,41 @@ async def get_listing(listing_id: int) -> Optional[Dict]:
         """, (listing_id,)) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
+
+async def get_meeting(meeting_id: int) -> Optional[Dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT m.*, 
+                   u1.first_name as host_name, u1.username as host_username,
+                   u2.first_name as guest_name, u2.username as guest_username
+            FROM meetings m
+            JOIN users u1 ON m.host_id = u1.id
+            JOIN users u2 ON m.guest_id = u2.id
+            WHERE m.id = ?
+        """, (meeting_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+async def get_user_meetings(user_id: int) -> List[Dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT m.*, 
+                   u1.first_name as host_name, u2.first_name as guest_name
+            FROM meetings m
+            JOIN users u1 ON m.host_id = u1.id
+            JOIN users u2 ON m.guest_id = u2.id
+            WHERE m.host_id = ? OR m.guest_id = ?
+            ORDER BY m.created_at DESC
+        """, (user_id, user_id)) as cur:
+            rows = await cur.fetchall()
+            return [dict(row) for row in rows]
+
+async def complete_meeting(meeting_id: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE meetings SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (meeting_id,)
+        )
+        await db.commit()
