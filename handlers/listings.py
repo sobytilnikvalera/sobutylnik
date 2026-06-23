@@ -158,38 +158,71 @@ async def show_next_anketa(message: Message, state: FSMContext):
     else:
         await message.answer_photo(photo=anketa['photo_id'], caption=text, parse_mode="Markdown", reply_markup=swipe_kb(anketa['id']))
 
+@router.callback_query(F.data == "swipe:close")
+async def close_swipe(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("Просмотр завершен.", reply_markup=main_menu_kb())
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    await callback.answer()
+
 @router.callback_query(F.data.startswith("swipe:"))
 async def handle_swipe(callback: CallbackQuery, state: FSMContext):
-    _, action, listing_id = callback.data.split(":")
-    listing_id = int(listing_id)
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        await callback.answer()
+        return
+        
+    action = parts[1]
+    listing_id = int(parts[2])
     
     # Получаем информацию об анкете, чтобы знать владельца
     from database.db import get_listing
     anketa = await get_listing(listing_id)
     
+    if not anketa:
+        await callback.answer("Анкета больше не активна.")
+        await show_next_anketa(callback, state)
+        return
+
     is_like = 1 if action == "like" else 0
     is_match = await add_like(callback.from_user.id, anketa['user_id'], listing_id, is_like)
     
     if is_match:
-        await callback.message.answer(f"🎉 *Взаимная симпатия!* \nВладелец анкеты: {anketa['first_name']}\nМожешь написать ему: @{anketa['username']}", parse_mode="Markdown")
+        await callback.message.answer(
+            f"🎉 *Взаимная симпатия!*\n\n"
+            f"Владелец анкеты: *{anketa['first_name']}*\n"
+            f"Можешь написать ему: @{anketa['username'] or 'id' + str(anketa['user_id'])}", 
+            parse_mode="Markdown"
+        )
         # Уведомляем владельца
-        await callback.bot.send_message(anketa['user_id'], f"❤️ У тебя взаимная симпатия с {callback.from_user.first_name}! \nСвязь: @{callback.from_user.username}")
+        try:
+            await callback.bot.send_message(
+                anketa['user_id'], 
+                f"❤️ *У тебя взаимная симпатия!*\n\n"
+                f"Пользователь {callback.from_user.first_name} лайкнул тебя в ответ.\n"
+                f"Связь: @{callback.from_user.username or 'id' + str(callback.from_user.id)}",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
     elif is_like:
-        await callback.bot.send_message(anketa['user_id'], f"❤️ Кто-то лайкнул твою анкету! Зайди в поиск, чтобы найти его.")
+        try:
+            await callback.bot.send_message(
+                anketa['user_id'], 
+                f"❤️ Кто-то лайкнул твою анкету! Зайди в поиск, чтобы найти взаимность."
+            )
+        except:
+            pass
 
     await show_next_anketa(callback, state)
     await callback.answer()
 
-@router.callback_query(F.data == "swipe:close")
-async def close_swipe(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.answer("Просмотр завершен.", reply_markup=main_menu_kb())
-    await callback.message.delete()
-    await callback.answer()
-
 # ─── МОЯ АНКЕТА ───────────────────────────────────────────────────────────────
 
-@router.message(F.text == "📋 Моя анкету")
+@router.message(F.text == "📋 Моя анкета")
 async def cmd_my_anketa(message: Message):
     anketa = await get_user_active_listing(message.from_user.id)
     if not anketa:
