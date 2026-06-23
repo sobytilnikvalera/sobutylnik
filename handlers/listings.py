@@ -131,6 +131,7 @@ async def process_max_people(message: Message, state: FSMContext):
 @router.callback_query(F.data == "listing_confirm", CreateListing.waiting_confirm)
 async def confirm_listing_handler(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    # Сохраняем анкету
     await create_listing(
         user_id=callback.from_user.id,
         title=data['title'],
@@ -143,10 +144,24 @@ async def confirm_listing_handler(callback: CallbackQuery, state: FSMContext):
         location_name="Рядом",
         max_people=data['max_people']
     )
+    # Очищаем состояние СРАЗУ ПОСЛЕ сохранения
     await state.clear()
-    await callback.message.answer("🚀 *Движ опубликован!* Жди лайков.", parse_mode="Markdown", reply_markup=main_menu_kb())
-    await callback.message.delete()
-    await callback.answer()
+    
+    # Отправляем подтверждение с НОВОЙ клавиатурой (main_menu_kb)
+    await callback.message.answer(
+        "🚀 *Движ опубликован!*\n\n"
+        "Теперь другие пользователи увидят твою анкету в поиске. "
+        "Как только кто-то лайкнет тебя — я пришлю уведомление!",
+        parse_mode="Markdown",
+        reply_markup=main_menu_kb()
+    )
+    
+    # Удаляем сообщение с предпросмотром, чтобы не висели старые кнопки
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    await callback.answer("Опубликовано!")
 
 @router.callback_query(F.data == "listing_cancel", CreateListing.waiting_confirm)
 async def cancel_listing_handler(callback: CallbackQuery, state: FSMContext):
@@ -294,27 +309,35 @@ async def handle_report(callback: CallbackQuery):
 # ─── МОЙ ПРОФИЛЬ (АНКЕТА) ─────────────────────────────────────────────────────
 
 @router.message(F.text == "😎 Мой профиль")
-async def cmd_my_anketa(message: Message):
+async def cmd_my_anketa(message: Message, state: FSMContext):
+    # Сбрасываем любые зависшие состояния при переходе в профиль
+    await state.clear()
+    
     anketa = await get_user_active_listing(message.from_user.id)
     if not anketa:
-        await message.answer("У тебя пока нет активного движа. Замути его! 🍻", reply_markup=main_menu_kb())
+        # Если анкеты нет, пробуем показать просто профиль пользователя из start.py
+        from handlers.start import cmd_profile
+        await cmd_profile(message, state)
         return
     
     text = (
-        f"😎 *Твой текущий движ:*\n\n"
+        f"😎 *Твой активный движ:*\n\n"
         f"📌 *{anketa['title']}*\n"
-        f"{anketa['description']}\n\n"
-        f"🍾 {anketa['drinks']}\n"
+        f"📝 {anketa['description']}\n\n"
+        f"🍾 Напитки: {anketa['drinks']}\n"
         f"👥 Мест: {anketa['max_people']}\n"
         f"📅 Создан: {anketa['created_at']}"
     )
     
-    await message.answer_photo(
-        photo=anketa['photo_id'], 
-        caption=text, 
-        parse_mode="Markdown", 
-        reply_markup=my_listing_actions_kb(anketa['id'])
-    )
+    try:
+        await message.answer_photo(
+            photo=anketa['photo_id'], 
+            caption=text, 
+            parse_mode="Markdown", 
+            reply_markup=my_listing_actions_kb(anketa['id'])
+        )
+    except Exception as e:
+        await message.answer(text, parse_mode="Markdown", reply_markup=my_listing_actions_kb(anketa['id']))
 
 @router.callback_query(F.data.startswith("listing_close:"))
 async def handle_close_listing(callback: CallbackQuery):
