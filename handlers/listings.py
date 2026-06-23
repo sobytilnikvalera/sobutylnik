@@ -42,13 +42,7 @@ async def process_title(message: Message, state: FSMContext):
         await message.answer("Отменено.", reply_markup=main_menu_kb())
         return
     
-    text = message.text.strip()
-    # Упростим валидацию до 5 символов, чтобы не было проблем с подсчетом слов
-    if len(text) < 5:
-        await message.answer("⚠️ Слишком коротко. Напиши чуть подробнее!")
-        return
-
-    await state.update_data(title=text[:50])
+    await state.update_data(title=message.text.strip()[:50])
     await state.set_state(CreateListing.waiting_description)
     await message.answer("Теперь добавь описание — что планируете делать?", reply_markup=cancel_kb())
 
@@ -60,12 +54,7 @@ async def process_description(message: Message, state: FSMContext):
         await message.answer("Отменено.", reply_markup=main_menu_kb())
         return
     
-    text = message.text.strip()
-    if len(text) < 10:
-        await message.answer("⚠️ Описание слишком короткое. Расскажи подробнее (хотя бы пару слов)!")
-        return
-
-    await state.update_data(description=text[:300])
+    await state.update_data(description=message.text.strip()[:300])
     await state.set_state(CreateListing.waiting_drinks)
     await message.answer("Что по напиткам? (например: Jameson, светлое нефильтрованное)", reply_markup=cancel_kb())
 
@@ -79,12 +68,21 @@ async def process_drinks(message: Message, state: FSMContext):
     await state.set_state(CreateListing.waiting_photo)
     await message.answer("Скинь фотку твоего стола или компании! 📸")
 
-@router.message(CreateListing.waiting_photo, F.photo)
+@router.message(CreateListing.waiting_photo)
 async def process_photo(message: Message, state: FSMContext):
+    if message.text == "◀️ Отмена":
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_kb())
+        return
+
+    if not message.photo:
+        await message.answer("Пожалуйста, пришли именно фото! 📸")
+        return
+
     photo_id = message.photo[-1].file_id
     await state.update_data(photo_id=photo_id)
     await state.set_state(CreateListing.waiting_location)
-    await message.answer("Где ты находишься? Скинь геолокацию, чтобы тебя нашли свои.", reply_markup=location_kb())
+    await message.answer("Фото принято! ✅\n\nТеперь скинь свою геолокацию, чтобы тебя нашли те, кто рядом.", reply_markup=location_kb())
 
 @router.message(CreateListing.waiting_location, F.location)
 async def process_location(message: Message, state: FSMContext):
