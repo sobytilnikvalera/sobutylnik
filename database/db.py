@@ -283,3 +283,12 @@ async def complete_meeting(meeting_id: int) -> None:
             (meeting_id,)
         )
         await db.commit()
+
+async def has_review(meeting_id: int, from_user_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id FROM reviews WHERE meeting_id = ? AND from_user_id = ?",
+            (meeting_id, from_user_id)
+        ) as cur:
+            row = await cur.fetchone()
+            return row is not None
