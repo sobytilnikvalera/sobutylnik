@@ -135,7 +135,8 @@ async def create_listing(
     latitude: float, longitude: float,
     location_name: str, max_people: int
 ) -> int:
-    expires_at = datetime.now() + timedelta(hours=24) # Увеличим время жизни анкеты
+    # Установим время жизни 48 часов, чтобы наверняка
+    expires_at = (datetime.now() + timedelta(hours=48)).strftime('%Y-%m-%d %H:%M:%S')
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("""
             INSERT INTO listings
@@ -150,17 +151,18 @@ async def get_next_listing_for_user(user_id: int, lat: float, lon: float) -> Opt
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         # Ищем активные анкеты чужих пользователей, которые мы еще не лайкали/дизлайкали
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         async with db.execute("""
             SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
             FROM listings l
             JOIN users u ON l.user_id = u.id
             WHERE l.status = 'active' 
               AND l.user_id != ?
-              AND l.expires_at > CURRENT_TIMESTAMP
+              AND l.expires_at > ?
               AND l.id NOT IN (SELECT listing_id FROM likes WHERE from_user_id = ?)
             ORDER BY l.created_at DESC
             LIMIT 1
-        """, (user_id, user_id)) as cur:
+        """, (user_id, now, user_id)) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
 
@@ -185,10 +187,12 @@ async def add_like(from_user_id: int, to_user_id: int, listing_id: int, is_like:
 async def get_user_active_listing(user_id: int) -> Optional[Dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+        # Используем datetime.now() для надежности сравнения
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         async with db.execute("""
             SELECT * FROM listings 
-            WHERE user_id = ? AND status = 'active' AND expires_at > CURRENT_TIMESTAMP
-        """, (user_id,)) as cur:
+            WHERE user_id = ? AND status = 'active' AND expires_at > ?
+        """, (user_id, now)) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
 

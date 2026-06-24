@@ -258,18 +258,25 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
     is_match = await add_like(callback.from_user.id, anketa['user_id'], listing_id, is_like)
     
     if is_match:
+        # Кликабельная ссылка на организатора
+        host_link = f"@{anketa['username']}" if anketa['username'] else f"[{anketa['first_name']}](tg://user?id={anketa['user_id']})"
+        
         await callback.message.answer(
             f"🎉 *ЕСТЬ КОНТАКТ!*\n\n"
             f"Тебе понравился движ *{anketa['title']}*, а ты понравился им!\n"
-            f"Пиши организатору: @{anketa['username'] or 'id'+str(anketa['user_id'])}", 
+            f"Связь с организатором: {host_link}", 
             parse_mode="Markdown"
         )
+        
         try:
+            # Кликабельная ссылка на того, кто лайкнул (гостя)
+            guest_link = f"@{callback.from_user.username}" if callback.from_user.username else f"[{callback.from_user.first_name}](tg://user?id={callback.from_user.id})"
+            
             await callback.bot.send_message(
                 anketa['user_id'], 
                 f"❤️ *У тебя новый матч!*\n\n"
                 f"Пользователь {callback.from_user.first_name} хочет на твой движ.\n"
-                f"Связь: @{callback.from_user.username or 'id'+str(callback.from_user.id)}",
+                f"Связь: {guest_link}",
                 parse_mode="Markdown"
             )
         except: pass
@@ -321,13 +328,17 @@ async def cmd_my_anketa(message: Message, state: FSMContext):
         await cmd_profile(message, state)
         return
     
+    # Добавим информацию о времени истечения
+    expires_at = anketa.get('expires_at', 'неизвестно')
+    
     text = (
         f"😎 *Твой активный движ:*\n\n"
         f"📌 *{anketa['title']}*\n"
         f"📝 {anketa['description']}\n\n"
         f"🍾 Напитки: {anketa['drinks']}\n"
         f"👥 Мест: {anketa['max_people']}\n"
-        f"📅 Создан: {anketa['created_at']}"
+        f"📅 Создан: {anketa['created_at']}\n"
+        f"⏳ Активен до: {expires_at}"
     )
     
     try:
