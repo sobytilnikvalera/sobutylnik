@@ -259,7 +259,14 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
     # ОТЛАДКА ДЛЯ АДМИНА (тебя)
     from handlers.admin import ADMIN_IDS
     if callback.from_user.id in ADMIN_IDS:
-        await callback.message.answer(f"DEBUG: Like from {callback.from_user.id} to {anketa['user_id']} (listing {listing_id}). Match: {is_match}")
+        await callback.message.answer(
+            f"🛠 <b>DEBUG INFO</b>\n"
+            f"От кого: <code>{callback.from_user.id}</code>\n"
+            f"Кому (владелец): <code>{anketa['user_id']}</code>\n"
+            f"ID анкеты: <code>{listing_id}</code>\n"
+            f"Результат матча: <b>{is_match}</b>",
+            parse_mode="HTML"
+        )
 
     if is_match and is_like:
         host_name = anketa['first_name'].replace("<", "&lt;").replace(">", "&gt;")

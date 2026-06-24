@@ -167,20 +167,24 @@ async def get_next_listing_for_user(user_id: int, lat: float, lon: float) -> Opt
             return dict(row) if row else None
 
 async def add_like(from_user_id: int, to_user_id: int, listing_id: int, is_like: int):
+    # Принудительное приведение к int для надежности
+    f_uid, t_uid, l_id = int(from_user_id), int(to_user_id), int(listing_id)
+    
     async with aiosqlite.connect(DB_PATH) as db:
-        # Используем INSERT OR REPLACE, чтобы не было ошибок дубликатов
+        # 1. Записываем наш лайк
         await db.execute("""
             INSERT OR REPLACE INTO likes (from_user_id, to_user_id, listing_id, is_like)
             VALUES (?, ?, ?, ?)
-        """, (from_user_id, to_user_id, listing_id, is_like))
+        """, (f_uid, t_uid, l_id, int(is_like)))
         await db.commit()
         
         if is_like == 1:
-            # Проверяем: лайкал ли to_user_id нашего from_user_id ХОТЯ БЫ РАЗ
+            # 2. Ищем ВЗАИМНЫЙ лайк (где to_user_id лайкал from_user_id)
+            # Ищем во ВСЕХ лайках этого пользователя
             async with db.execute("""
                 SELECT id FROM likes 
                 WHERE from_user_id = ? AND to_user_id = ? AND is_like = 1
-            """, (to_user_id, from_user_id)) as cur:
+            """, (t_uid, f_uid)) as cur:
                 match = await cur.fetchone()
                 if match:
                     return True
