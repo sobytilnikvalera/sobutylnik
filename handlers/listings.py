@@ -255,12 +255,19 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
         return
 
     is_like = 1 if action == "like" else 0
+    
+    # Сначала отвечаем на колбэк, чтобы кнопка не "висела"
+    await callback.answer("Принято!" if is_like else "Пропущено")
+    
+    # Записываем лайк/дизлайк и проверяем матч
     is_match = await add_like(callback.from_user.id, anketa['user_id'], listing_id, is_like)
     
-    if is_match:
-        # Кликабельная ссылка на организатора
+    if is_match and is_like:
+        # Ссылки на пользователей
         host_link = f"@{anketa['username']}" if anketa['username'] else f"[{anketa['first_name']}](tg://user?id={anketa['user_id']})"
+        guest_link = f"@{callback.from_user.username}" if callback.from_user.username else f"[{callback.from_user.first_name}](tg://user?id={callback.from_user.id})"
         
+        # Уведомление тому, кто нажал лайк СЕЙЧАС
         await callback.message.answer(
             f"🎉 *ЕСТЬ КОНТАКТ!*\n\n"
             f"Тебе понравился движ *{anketa['title']}*, а ты понравился им!\n"
@@ -268,19 +275,19 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
             parse_mode="Markdown"
         )
         
+        # Уведомление второму участнику (организатору)
         try:
-            # Кликабельная ссылка на того, кто лайкнул (гостя)
-            guest_link = f"@{callback.from_user.username}" if callback.from_user.username else f"[{callback.from_user.first_name}](tg://user?id={callback.from_user.id})"
-            
             await callback.bot.send_message(
                 anketa['user_id'], 
-                f"❤️ *У тебя новый матч!*\n\n"
-                f"Пользователь {callback.from_user.first_name} хочет на твой движ.\n"
+                f"🎉 *ВЗАИМНЫЙ ЛАЙК!*\n\n"
+                f"Пользователь {callback.from_user.first_name} лайкнул твой движ *{anketa['title']}*.\n"
+                f"Вы понравились друг другу! \n"
                 f"Связь: {guest_link}",
                 parse_mode="Markdown"
             )
         except: pass
     elif is_like:
+        # Просто уведомление о лайке (без контактов)
         try:
             await callback.bot.send_message(
                 anketa['user_id'], 
@@ -288,8 +295,8 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
             )
         except: pass
 
+    # Показываем следующую анкету
     await show_next_anketa(callback, state)
-    await callback.answer()
 
 @router.callback_query(F.data.startswith("report:"))
 async def handle_report(callback: CallbackQuery):

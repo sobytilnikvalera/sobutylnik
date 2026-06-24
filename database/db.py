@@ -176,6 +176,7 @@ async def add_like(from_user_id: int, to_user_id: int, listing_id: int, is_like:
         
         # Проверка на взаимный лайк
         if is_like == 1:
+            # Ищем, лайкал ли ТОТ пользователь ЭТОГО пользователя ХОТЯ БЫ В ОДНОЙ его анкете
             async with db.execute("""
                 SELECT id FROM likes 
                 WHERE from_user_id = ? AND to_user_id = ? AND is_like = 1
