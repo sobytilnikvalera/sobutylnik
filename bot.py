@@ -20,8 +20,8 @@ async def main():
     # Безопасное получение токена
     token = os.getenv("BOT_TOKEN")
     if not token:
-        # Резервный вариант, если забыли прописать в Railway
-        token = "8879403729:AAE1ICMxtObZnG0cKN_zuLY52FpbRtYmdYw"
+        logger.error("КРИТИЧЕСКАЯ ОШИБКА: Переменная BOT_TOKEN не найдена в окружении!")
+        return
     
     # Инициализация БД
     await init_db()
