@@ -326,16 +326,37 @@ async def handle_report(callback: CallbackQuery):
     listing_id = int(callback.data.split(":")[1])
     anketa = await get_listing(listing_id)
     if anketa:
-        from handlers.admin import ADMIN_IDS
+        from handlers.admin import ADMIN_IDS, InlineKeyboardMarkup, InlineKeyboardButton
+        
+        reporter_name = callback.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
+        reporter_link = f"@{callback.from_user.username}" if callback.from_user.username else f'<a href="tg://user?id={callback.from_user.id}">{reporter_name}</a>'
+        
+        author_name = anketa['first_name'].replace("<", "&lt;").replace(">", "&gt;")
+        author_link = f"@{anketa['username']}" if anketa['username'] else f'<a href="tg://user?id={anketa["user_id"]}">{author_name}</a>'
+
+        report_text = (
+            f"🚩 <b>ЖАЛОБА НА АНКЕТУ №{listing_id}</b>\n\n"
+            f"👤 <b>Кто пожаловался:</b> {reporter_link} (ID: <code>{callback.from_user.id}</code>)\n"
+            f"👤 <b>Автор анкеты:</b> {author_link} (ID: <code>{anketa['user_id']}</code>)\n\n"
+            f"📌 <b>Заголовок:</b> {anketa['title']}\n"
+            f"📝 <b>Описание:</b> {anketa['description']}"
+        )
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Удалить анкету", callback_query_data=f"admin_del:{listing_id}")],
+            [InlineKeyboardButton(text="🔨 Забанить автора", callback_query_data=f"admin_ban:{anketa['user_id']}")],
+            [InlineKeyboardButton(text="❌ Закрыть", callback_query_data="admin_close")]
+        ])
+
         for admin_id in ADMIN_IDS:
             try:
-                await callback.bot.send_message(
-                    admin_id,
-                    f"🚩 *ЖАЛОБА на анкету!*\n\nID анкеты: `{listing_id}`",
-                    parse_mode="Markdown"
-                )
+                if anketa['photo_id']:
+                    await callback.bot.send_photo(admin_id, photo=anketa['photo_id'], caption=report_text, parse_mode="HTML", reply_markup=kb)
+                else:
+                    await callback.bot.send_message(admin_id, report_text, parse_mode="HTML", reply_markup=kb)
             except: pass
-    await callback.answer("Жалоба отправлена.", show_alert=True)
+            
+    await callback.answer("Жалоба отправлена. Админы разберутся! 🛡️", show_alert=True)
     await show_next_anketa(callback, None)
 
 @router.message(F.text == "😎 Мой профиль")
