@@ -1,12 +1,12 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 import logging
 
 from database.db import (
     create_listing, get_user_active_listing, 
-    get_next_listing_for_user, add_like, get_listing, close_listing
+    get_next_listing_for_user, add_like, get_listing, close_listing, create_meeting
 )
 from states.states import CreateListing
 from utils.keyboards import (
@@ -196,8 +196,6 @@ async def show_next_anketa(message, state: FSMContext):
         text = "😢 Больше движух рядом нет. Попробуй позже или замути свой!"
         if isinstance(message, CallbackQuery):
             await message.message.answer(text, reply_markup=main_menu_kb())
-            try: await message.message.delete()
-            except: pass
         else:
             await message.answer(text, reply_markup=main_menu_kb())
         return
@@ -215,8 +213,6 @@ async def show_next_anketa(message, state: FSMContext):
     )
 
     if isinstance(message, CallbackQuery):
-        try: await message.message.delete()
-        except: pass
         await message.message.answer_photo(
             photo=anketa['photo_id'], 
             caption=text, 
@@ -256,30 +252,26 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
     
     is_match = await add_like(callback.from_user.id, anketa['user_id'], listing_id, is_like)
     
-    # ОТЛАДКА ДЛЯ АДМИНА (тебя)
-    from handlers.admin import ADMIN_IDS
-    if callback.from_user.id in ADMIN_IDS:
-        await callback.message.answer(
-            f"🛠 <b>DEBUG INFO</b>\n"
-            f"От кого: <code>{callback.from_user.id}</code>\n"
-            f"Кому (владелец): <code>{anketa['user_id']}</code>\n"
-            f"ID анкеты: <code>{listing_id}</code>\n"
-            f"Результат матча: <b>{is_match}</b>",
-            parse_mode="HTML"
-        )
-
     if is_match and is_like:
+        meeting_id = await create_meeting(listing_id, anketa['user_id'], callback.from_user.id)
+        
         host_name = anketa['first_name'].replace("<", "&lt;").replace(">", "&gt;")
         guest_name = callback.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
         
         host_link = f"@{anketa['username']}" if anketa['username'] else f'<a href="tg://user?id={anketa["user_id"]}">{host_name}</a>'
         guest_link = f"@{callback.from_user.username}" if callback.from_user.username else f'<a href="tg://user?id={callback.from_user.id}">{guest_name}</a>'
         
+        review_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Встреча состоялась (оставить отзыв)", callback_query_data=f"meeting_done:{meeting_id}")]
+        ])
+
         await callback.message.answer(
             f"🎉 <b>ЕСТЬ КОНТАКТ!</b>\n\n"
             f"Тебе понравился движ <b>{anketa['title']}</b>, а ты понравился им!\n"
-            f"Связь с организатором: {host_link}", 
-            parse_mode="HTML"
+            f"Связь с организатором: {host_link}\n\n"
+            f"<i>После встречи нажми кнопку ниже, чтобы оставить отзыв!</i>", 
+            parse_mode="HTML",
+            reply_markup=review_kb
         )
         
         try:
@@ -288,8 +280,10 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
                 f"🎉 <b>ВЗАИМНЫЙ ЛАЙК!</b>\n\n"
                 f"Пользователь {guest_name} лайкнул твой движ <b>{anketa['title']}</b>.\n"
                 f"Вы понравились друг другу! \n"
-                f"Связь: {guest_link}",
-                parse_mode="HTML"
+                f"Связь: {guest_link}\n\n"
+                f"<i>После встречи нажми кнопку ниже, чтобы оставить отзыв!</i>",
+                parse_mode="HTML",
+                reply_markup=review_kb
             )
         except Exception as e:
             logging.error(f"Error sending match message: {e}")
@@ -302,6 +296,18 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
         except: pass
 
     await show_next_anketa(callback, state)
+
+@router.callback_query(F.data.startswith("meeting_done:"))
+async def handle_meeting_done(callback: CallbackQuery, state: FSMContext):
+    meeting_id = int(callback.data.split(":")[1])
+    from database.db import complete_meeting
+    await complete_meeting(meeting_id)
+    await callback.message.answer(
+        "Круто, что встреча состоялась! 🍻\n"
+        f"Чтобы оставить отзыв, нажми сюда: /review_{meeting_id}",
+        reply_markup=main_menu_kb()
+    )
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("report:"))
 async def handle_report(callback: CallbackQuery):
