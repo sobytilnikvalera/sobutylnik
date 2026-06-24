@@ -50,7 +50,6 @@ async def init_db():
                 listing_id INTEGER NOT NULL,
                 is_like INTEGER NOT NULL, -- 1 для лайка, 0 для дизлайка
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(from_user_id, listing_id),
                 FOREIGN KEY (from_user_id) REFERENCES users(id),
                 FOREIGN KEY (to_user_id) REFERENCES users(id),
                 FOREIGN KEY (listing_id) REFERENCES listings(id)
