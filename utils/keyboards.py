@@ -6,7 +6,8 @@ from aiogram.types import (
 def main_menu_kb():
     kb = [
         [KeyboardButton(text="🍻 Замутить движ"), KeyboardButton(text="🕵️ Найти вписку")],
-        [KeyboardButton(text="😎 Мой профиль"), KeyboardButton(text="📜 Репутация")],
+        [KeyboardButton(text="❤️ Мои матчи"), KeyboardButton(text="😎 Мой профиль")],
+        [KeyboardButton(text="📜 Репутация")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 

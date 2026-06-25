@@ -195,7 +195,7 @@ async def show_next_anketa(message, state: FSMContext):
     if not anketa:
         text = "😢 Больше движух рядом нет. Попробуй позже или замути свой!"
         if isinstance(message, CallbackQuery):
-            await message.message.answer(text, reply_markup=main_menu_kb())
+            await message.message.answer(text)
         else:
             await message.answer(text, reply_markup=main_menu_kb())
         return
