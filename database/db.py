@@ -135,7 +135,8 @@ async def create_listing(
     location_name: str, max_people: int
 ) -> int:
     # Установим время жизни 48 часов, чтобы наверняка
-    expires_at = (datetime.now() + timedelta(hours=48)).strftime('%Y-%m-%d %H:%M:%S')
+    # Используем UTC для всех операций со временем
+    expires_at = (datetime.utcnow() + timedelta(hours=48)).strftime('%Y-%m-%d %H:%M:%S')
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("""
             INSERT INTO listings
@@ -149,8 +150,7 @@ async def get_next_listing_for_user(user_id: int, lat: float, lon: float) -> Opt
     """Получить следующую анкету, которую пользователь еще не оценивал."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        # Ищем активные анкеты чужих пользователей, которые мы еще не лайкали/дизлайкали
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         async with db.execute("""
             SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
             FROM listings l
@@ -192,8 +192,7 @@ async def add_like(from_user_id: int, to_user_id: int, listing_id: int, is_like:
 async def get_user_active_listing(user_id: int) -> Optional[Dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        # Используем datetime.now() для надежности сравнения
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         async with db.execute("""
             SELECT * FROM listings 
             WHERE user_id = ? AND status = 'active' AND expires_at > ?

@@ -237,75 +237,84 @@ async def close_swipe(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("swipe:"))
 async def handle_swipe(callback: CallbackQuery, state: FSMContext):
-    parts = callback.data.split(":")
-    action = parts[1]
-    listing_id = int(parts[2])
-    
-    anketa = await get_listing(listing_id)
-    if not anketa:
-        await callback.answer("Этот движ уже закончился.")
-        await show_next_anketa(callback, state)
-        return
+    try:
+        parts = callback.data.split(":")
+        action = parts[1]
+        listing_id = int(parts[2])
+        
+        anketa = await get_listing(listing_id)
+        if not anketa:
+            await callback.answer("Этот движ уже закончился.")
+            await show_next_anketa(callback, state)
+            return
 
-    is_like = 1 if action == "like" else 0
-    await callback.answer("Принято!" if is_like else "Пропущено")
-    
-    is_match = await add_like(callback.from_user.id, anketa['user_id'], listing_id, is_like)
-    
-    # ОТЛАДКА ДЛЯ АДМИНА (тебя)
-    from handlers.admin import ADMIN_IDS
-    if callback.from_user.id in ADMIN_IDS:
-        await callback.message.answer(
-            f"🛠 <b>DEBUG INFO</b>\n"
-            f"От кого: <code>{callback.from_user.id}</code>\n"
-            f"Кому (владелец): <code>{anketa['user_id']}</code>\n"
-            f"ID анкеты: <code>{listing_id}</code>\n"
-            f"Результат матча: <b>{is_match}</b>",
-            parse_mode="HTML"
-        )
-    
-    if is_match and is_like:
-        meeting_id = await create_meeting(listing_id, anketa['user_id'], callback.from_user.id)
+        is_like = 1 if action == "like" else 0
+        await callback.answer("Принято!" if is_like else "Пропущено")
         
-        host_name = anketa['first_name'].replace("<", "&lt;").replace(">", "&gt;")
-        guest_name = callback.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
+        is_match = await add_like(callback.from_user.id, anketa['user_id'], listing_id, is_like)
         
-        host_link = f"@{anketa['username']}" if anketa['username'] else f'<a href="tg://user?id={anketa["user_id"]}">{host_name}</a>'
-        guest_link = f"@{callback.from_user.username}" if callback.from_user.username else f'<a href="tg://user?id={callback.from_user.id}">{guest_name}</a>'
+        # ОТЛАДКА ДЛЯ АДМИНА (тебя)
+        from handlers.admin import ADMIN_IDS
+        if callback.from_user.id in ADMIN_IDS:
+            await callback.message.answer(
+                f"🛠 <b>DEBUG INFO</b>\n"
+                f"От кого: <code>{callback.from_user.id}</code>\n"
+                f"Кому (владелец): <code>{anketa['user_id']}</code>\n"
+                f"ID анкеты: <code>{listing_id}</code>\n"
+                f"Результат матча: <b>{is_match}</b>",
+                parse_mode="HTML"
+            )
         
-        review_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Встреча состоялась (оставить отзыв)", callback_query_data=f"meeting_done:{meeting_id}")]
-        ])
+        if is_match and is_like:
+            meeting_id = await create_meeting(listing_id, anketa['user_id'], callback.from_user.id)
+            
+            host_name = anketa['first_name'].replace("<", "&lt;").replace(">", "&gt;")
+            guest_name = callback.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
+        
+            host_link = f"@{anketa['username']}" if anketa['username'] else f'<a href="tg://user?id={anketa["user_id"]}">{host_name}</a>'
+            guest_link = f"@{callback.from_user.username}" if callback.from_user.username else f'<a href="tg://user?id={callback.from_user.id}">{guest_name}</a>'
+            
+            review_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Встреча состоялась (оставить отзыв)", callback_query_data=f"meeting_done:{meeting_id}")]
+            ])
 
-        await callback.message.answer(
-            f"🎉 <b>ЕСТЬ КОНТАКТ!</b>\n\n"
-            f"Тебе понравился движ <b>{anketa['title']}</b>, а ты понравился им!\n"
-            f"Связь с организатором: {host_link}\n\n"
-            f"<i>После встречи нажми кнопку ниже, чтобы оставить отзыв!</i>", 
-            parse_mode="HTML",
-            reply_markup=review_kb
-        )
-        
-        try:
-            await callback.bot.send_message(
-                anketa['user_id'], 
-                f"🎉 <b>ВЗАИМНЫЙ ЛАЙК!</b>\n\n"
-                f"Пользователь {guest_name} лайкнул твой движ <b>{anketa['title']}</b>.\n"
-                f"Вы понравились друг другу! \n"
-                f"Связь: {guest_link}\n\n"
-                f"<i>После встречи нажми кнопку ниже, чтобы оставить отзыв!</i>",
+            await callback.message.answer(
+                f"🎉 <b>ЕСТЬ КОНТАКТ!</b>\n\n"
+                f"Тебе понравился движ <b>{anketa['title']}</b>, а ты понравился им!\n"
+                f"Связь с организатором: {host_link}\n\n"
+                f"<i>После встречи нажми кнопку ниже, чтобы оставить отзыв!</i>", 
                 parse_mode="HTML",
                 reply_markup=review_kb
             )
-        except Exception as e:
-            logging.error(f"Error sending match message: {e}")
-    elif is_like:
-        try:
-            await callback.bot.send_message(
-                anketa['user_id'], 
-                f"❤️ Кто-то лайкнул твой движ! Зайди в поиск, чтобы найти взаимность."
-            )
-        except: pass
+            
+            try:
+                await callback.bot.send_message(
+                    anketa['user_id'], 
+                    f"🎉 <b>ВЗАИМНЫЙ ЛАЙК!</b>\n\n"
+                    f"Пользователь {guest_name} лайкнул твой движ <b>{anketa['title']}</b>.\n"
+                    f"Вы понравились друг другу! \n"
+                    f"Связь: {guest_link}\n\n"
+                    f"<i>После встречи нажми кнопку ниже, чтобы оставить отзыв!</i>",
+                    parse_mode="HTML",
+                    reply_markup=review_kb
+                )
+            except Exception as e:
+                logging.error(f"Error sending match message: {e}")
+        elif is_like:
+            try:
+                await callback.bot.send_message(
+                    anketa['user_id'], 
+                    f"❤️ Кто-то лайкнул твой движ! Зайди в поиск, чтобы найти взаимность."
+                )
+            except: pass
+
+    except Exception as e:
+        logging.error(f"FATAL ERROR in handle_swipe: {e}")
+        from handlers.admin import ADMIN_IDS
+        for admin_id in ADMIN_IDS:
+            try:
+                await callback.bot.send_message(admin_id, f"❌ <b>КРИТИЧЕСКАЯ ОШИБКА:</b>\n<code>{e}</code>", parse_mode="HTML")
+            except: pass
 
     await show_next_anketa(callback, state)
 
