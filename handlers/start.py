@@ -120,46 +120,56 @@ async def process_bio(message: Message, state: FSMContext):
 @router.message(F.text == "😎 Мой профиль")
 @router.message(Command("profile"))
 async def cmd_profile(message: Message, state: FSMContext):
-    await state.clear()
-    user = await get_user(message.from_user.id)
-    if not user:
-        await message.answer("Сначала зарегистрируйся — нажми /start")
-        return
+    try:
+        await state.clear()
+        user = await get_user(message.from_user.id)
+        if not user:
+            await message.answer("Сначала зарегистрируйся — нажми /start")
+            return
 
-    from database.db import get_user_active_listing
-    from utils.keyboards import my_listing_actions_kb
-    
-    anketa = await get_user_active_listing(message.from_user.id)
-    
-    profile_text = format_profile(user)
-    reviews = await get_user_reviews(message.from_user.id)
-
-    if reviews:
-        profile_text += "\n\n*Последние отзывы:*\n"
-        for r in reviews[:3]:
-            author = r.get("author_name", "Аноним")
-            profile_text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
-
-    # Если есть активная анкета, показываем её вместе с профилем
-    if anketa:
-        anketa_text = (
-            f"\n🔥 *Твой активный движ:*\n"
-            f"📌 *{anketa['title']}*\n"
-            f"⏳ Активен до: {anketa['expires_at']}\n"
-        )
-        full_text = profile_text + "\n" + anketa_text
+        from database.db import get_user_active_listing
+        from utils.keyboards import my_listing_actions_kb
         
-        try:
-            await message.answer_photo(
-                photo=anketa['photo_id'], 
-                caption=full_text, 
-                parse_mode="Markdown", 
-                reply_markup=my_listing_actions_kb(anketa['id'])
+        anketa = await get_user_active_listing(message.from_user.id)
+        
+        profile_text = format_profile(user)
+        reviews = await get_user_reviews(message.from_user.id)
+
+        if reviews:
+            profile_text += "\n\n*Последние отзывы:*\n"
+            for r in reviews[:3]:
+                author = r.get("author_name", "Аноним")
+                profile_text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
+
+        # Если есть активная анкета, показываем её вместе с профилем
+        if anketa:
+            anketa_text = (
+                f"\n🔥 *Твой активный движ:*\n"
+                f"📌 *{anketa['title']}*\n"
+                f"⏳ Активен до: {anketa['expires_at']}\n"
             )
-        except:
-            await message.answer(full_text, parse_mode="Markdown", reply_markup=my_listing_actions_kb(anketa['id']))
-    else:
-        await message.answer(profile_text, parse_mode="Markdown", reply_markup=main_menu_kb())
+            full_text = profile_text + "\n" + anketa_text
+            
+            try:
+                # Пытаемся отправить фото, если оно есть
+                if anketa.get('photo_id'):
+                    await message.answer_photo(
+                        photo=anketa['photo_id'], 
+                        caption=full_text, 
+                        parse_mode="Markdown", 
+                        reply_markup=my_listing_actions_kb(anketa['id'])
+                    )
+                else:
+                    await message.answer(full_text, parse_mode="Markdown", reply_markup=my_listing_actions_kb(anketa['id']))
+            except Exception as e:
+                # Если фото не отправилось (например, неверный file_id), отправляем текстом
+                await message.answer(full_text, parse_mode="Markdown", reply_markup=my_listing_actions_kb(anketa['id']))
+        else:
+            await message.answer(profile_text, parse_mode="Markdown", reply_markup=main_menu_kb())
+    except Exception as e:
+        import logging
+        logging.error(f"Error in cmd_profile: {e}")
+        await message.answer("Произошла ошибка при загрузке профиля. Попробуй позже.")
 
 @router.message(F.text == "📜 Репутация")
 async def cmd_my_reviews(message: Message):
