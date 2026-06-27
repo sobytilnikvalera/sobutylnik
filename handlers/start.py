@@ -126,16 +126,40 @@ async def cmd_profile(message: Message, state: FSMContext):
         await message.answer("Сначала зарегистрируйся — нажми /start")
         return
 
-    text = format_profile(user)
+    from database.db import get_user_active_listing
+    from utils.keyboards import my_listing_actions_kb
+    
+    anketa = await get_user_active_listing(message.from_user.id)
+    
+    profile_text = format_profile(user)
     reviews = await get_user_reviews(message.from_user.id)
 
     if reviews:
-        text += "\n\n*Последние отзывы:*\n"
+        profile_text += "\n\n*Последние отзывы:*\n"
         for r in reviews[:3]:
             author = r.get("author_name", "Аноним")
-            text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
+            profile_text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
 
-    await message.answer(text, parse_mode="Markdown", reply_markup=main_menu_kb())
+    # Если есть активная анкета, показываем её вместе с профилем
+    if anketa:
+        anketa_text = (
+            f"\n🔥 *Твой активный движ:*\n"
+            f"📌 *{anketa['title']}*\n"
+            f"⏳ Активен до: {anketa['expires_at']}\n"
+        )
+        full_text = profile_text + "\n" + anketa_text
+        
+        try:
+            await message.answer_photo(
+                photo=anketa['photo_id'], 
+                caption=full_text, 
+                parse_mode="Markdown", 
+                reply_markup=my_listing_actions_kb(anketa['id'])
+            )
+        except:
+            await message.answer(full_text, parse_mode="Markdown", reply_markup=my_listing_actions_kb(anketa['id']))
+    else:
+        await message.answer(profile_text, parse_mode="Markdown", reply_markup=main_menu_kb())
 
 @router.message(F.text == "📜 Репутация")
 async def cmd_my_reviews(message: Message):
