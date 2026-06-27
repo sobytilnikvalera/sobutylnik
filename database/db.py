@@ -52,7 +52,8 @@ async def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (from_user_id) REFERENCES users(id),
                 FOREIGN KEY (to_user_id) REFERENCES users(id),
-                FOREIGN KEY (listing_id) REFERENCES listings(id)
+                FOREIGN KEY (listing_id) REFERENCES listings(id),
+                UNIQUE(from_user_id, to_user_id, listing_id)
             )
         """)
 
@@ -171,6 +172,8 @@ async def add_like(from_user_id: int, to_user_id: int, listing_id: int, is_like:
     
     async with aiosqlite.connect(DB_PATH) as db:
         # 1. Записываем наш лайк
+        # 1. Записываем наш лайк
+        # Используем INSERT OR REPLACE, чтобы обновить решение, если пользователь передумал
         await db.execute("""
             INSERT OR REPLACE INTO likes (from_user_id, to_user_id, listing_id, is_like)
             VALUES (?, ?, ?, ?)
@@ -178,8 +181,9 @@ async def add_like(from_user_id: int, to_user_id: int, listing_id: int, is_like:
         await db.commit()
         
         if is_like == 1:
-            # 2. Ищем ВЗАИМНЫЙ лайк (где to_user_id лайкал from_user_id)
-            # Ищем во ВСЕХ лайках этого пользователя
+            # 2. Ищем ВЗАИМНЫЙ лайк
+            # Важно: Матч случается, если t_uid когда-либо лайкнул f_uid (is_like = 1)
+            # Мы проверяем таблицу лайков в обратную сторону
             async with db.execute("""
                 SELECT id FROM likes 
                 WHERE from_user_id = ? AND to_user_id = ? AND is_like = 1
