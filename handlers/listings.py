@@ -274,9 +274,9 @@ async def handle_swipe(callback: CallbackQuery, state: FSMContext):
             host_link = f"@{anketa['username']}" if anketa['username'] else f'<a href="tg://user?id={anketa["user_id"]}">{host_name}</a>'
             guest_link = f"@{callback.from_user.username}" if callback.from_user.username else f'<a href="tg://user?id={callback.from_user.id}">{guest_name}</a>'
             
-            # Исправляем формат кнопок - используем только InlineKeyboardButton с callback_query_data
+            # Исправляем формат кнопок - используем только InlineKeyboardButton с callback_data
             review_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Встреча состоялась", callback_query_data=f"meeting_done:{meeting_id}")]
+                [InlineKeyboardButton(text="✅ Встреча состоялась", callback_data=f"meeting_done:{meeting_id}")]
             ])
 
             await callback.message.answer(
