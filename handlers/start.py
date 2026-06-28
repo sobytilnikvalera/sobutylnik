@@ -167,17 +167,56 @@ async def cmd_profile(message: Message, state: FSMContext):
 
 @router.message(F.text == "📜 Репутация")
 async def cmd_my_reviews(message: Message):
-    reviews = await get_user_reviews(message.from_user.id)
+    from database.db import get_user_reviews, get_user
+    from utils.keyboards import main_menu_kb
+    
+    user_id = message.from_user.id
+    user = await get_user(user_id)
+    reviews = await get_user_reviews(user_id)
+    
+    rating = user.get("rating", 0.0) if user else 0.0
+    stars_str = get_stars_local(rating)
+    
+    text = f"📜 <b>Твоя репутация</b>\n\n"
+    text += f"⭐ Рейтинг: <b>{rating:.1f} / 5.0</b> {stars_str}\n"
+    text += f"💬 Всего отзывов: <b>{len(reviews)}</b>\n"
+    text += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
+    
     if not reviews:
-        await message.answer("У тебя пока нет отзывов.")
-        return
+        text += "\n<i>У тебя пока нет публичных отзывов. Они появятся здесь, когда оба участника встречи напишут их друг о друге.</i>"
+    else:
+        for r in reviews[:10]:
+            author = r.get("author_name", "Аноним").replace("<", "&lt;").replace(">", "&gt;")
+            text += f"\n{get_stars_local(r['rating'])} от <b>{author}</b>\n<i>{r.get('text', '') or 'без текста'}</i>\n"
     
-    text = "📜 *Твоя репутация:*\n"
-    for r in reviews:
-        author = r.get("author_name", "Аноним")
-        text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
+    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+
+@router.message(F.text == "❤️ Мои матчи")
+async def cmd_my_matches(message: Message):
+    from database.db import get_user_meetings
+    from utils.keyboards import main_menu_kb
     
-    await message.answer(text, parse_mode="Markdown")
+    user_id = message.from_user.id
+    meetings = await get_user_meetings(user_id)
+    
+    text = "❤️ <b>Твои матчи и контакты</b>\n\n"
+    text += "Здесь список людей, с которыми ты обменялся контактами:\n\n"
+    
+    if not meetings:
+        text += "<i>Пока пусто. Лайкни кого-нибудь, чтобы здесь появились контакты!</i>"
+    else:
+        for m in meetings[:15]:
+            # Определяем, кто второй участник
+            other_name = m['guest_name'] if m['host_id'] == user_id else m['host_name']
+            other_id = m['guest_id'] if m['host_id'] == user_id else m['host_id']
+            
+            # Пытаемся получить username через БД (в get_user_meetings его нет, но можно добавить)
+            # Для простоты пока даем ссылку по ID
+            text += f"👤 <b>{other_name}</b>\n"
+            text += f"🔗 <a href='tg://user?id={other_id}'>Перейти в чат</a>\n"
+            text += f"📅 <i>{m['created_at']}</i>\n\n"
+    
+    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
 
 @router.message(F.text == "📩 Написать админу")
 async def cmd_feedback(message: Message, state: FSMContext):
