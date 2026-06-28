@@ -7,7 +7,7 @@ def main_menu_kb():
     kb = [
         [KeyboardButton(text="🍻 Ищу собутыльника"), KeyboardButton(text="🕵️ Найти вписку")],
         [KeyboardButton(text="❤️ Мои матчи"), KeyboardButton(text="😎 Мой профиль")],
-        [KeyboardButton(text="📜 Репутация")]
+        [KeyboardButton(text="📜 Репутация"), KeyboardButton(text="📩 Написать админу")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 

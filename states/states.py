@@ -21,3 +21,6 @@ class BrowseAnketas(StatesGroup):
 class LeaveReview(StatesGroup):
     waiting_rating = State()
     waiting_text = State()
+
+class FeedbackStates(StatesGroup):
+    waiting_feedback = State()

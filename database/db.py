@@ -152,23 +152,57 @@ async def create_listing(
         return cur.lastrowid
 
 async def get_next_listing_for_user(user_id: int, lat: float, lon: float) -> Optional[Dict]:
-    """Получить следующую анкету, которую пользователь еще не оценивал."""
+    """Получить следующую анкету в радиусе 5 км, которую пользователь еще не оценивал."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        async with db.execute("""
-            SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
+        
+        # SQL-запрос с формулой Гаверсинуса для фильтрации по расстоянию (5 км)
+        # 6371 - радиус Земли в км
+        query = """
+            SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count,
+            (6371 * acos(cos(radians(?)) * cos(radians(l.latitude)) * cos(radians(l.longitude) - radians(?)) + sin(radians(?)) * sin(radians(l.latitude)))) AS distance
             FROM listings l
             JOIN users u ON l.user_id = u.id
             WHERE l.status = 'active' 
               AND l.user_id != ?
               AND l.expires_at > ?
               AND l.id NOT IN (SELECT listing_id FROM likes WHERE from_user_id = ?)
-            ORDER BY l.created_at DESC
+              AND (6371 * acos(cos(radians(?)) * cos(radians(l.latitude)) * cos(radians(l.longitude) - radians(?)) + sin(radians(?)) * sin(radians(l.latitude)))) <= 5
+            ORDER BY distance ASC
             LIMIT 1
-        """, (user_id, now, user_id)) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+        """
+        
+        try:
+            async with db.execute(query, (lat, lon, lat, user_id, now, user_id, lat, lon, lat)) as cur:
+                row = await cur.fetchone()
+                return dict(row) if row else None
+        except Exception:
+            # Если SQLite не поддерживает acos/cos (зависит от сборки), используем упрощенный квадратный фильтр и сортировку в Python
+            async with db.execute("""
+                SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
+                FROM listings l
+                JOIN users u ON l.user_id = u.id
+                WHERE l.status = 'active' 
+                  AND l.user_id != ?
+                  AND l.expires_at > ?
+                  AND l.id NOT IN (SELECT listing_id FROM likes WHERE from_user_id = ?)
+                  AND l.latitude BETWEEN ? - 0.05 AND ? + 0.05
+                  AND l.longitude BETWEEN ? - 0.05 AND ? + 0.05
+                ORDER BY l.created_at DESC
+            """, (user_id, now, user_id, lat, lat, lon, lon)) as cur:
+                rows = await cur.fetchall()
+                if not rows: return None
+                
+                from utils.helpers import calculate_distance
+                listings_list = [dict(r) for r in rows]
+                for item in listings_list:
+                    item['distance'] = calculate_distance(lat, lon, item['latitude'], item['longitude'])
+                
+                # Фильтруем по 5 км и берем ближайшую
+                nearby = [i for i in listings_list if i['distance'] <= 5]
+                if not nearby: return None
+                return sorted(nearby, key=lambda x: x['distance'])[0]
 
 async def add_like(from_user_id: int, to_user_id: int, listing_id: int, is_like: int):
     # Принудительное приведение к int для надежности

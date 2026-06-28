@@ -4,7 +4,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 
 from database.db import get_user, create_user, update_user_profile, get_user_reviews
-from states.states import ProfileSetup
+from states.states import ProfileSetup, FeedbackStates
 from utils.keyboards import main_menu_kb, cancel_kb, skip_kb
 
 router = Router()
@@ -185,3 +185,44 @@ async def cmd_my_reviews(message: Message):
         text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
     
     await message.answer(text, parse_mode="Markdown")
+
+@router.message(F.text == "📩 Написать админу")
+async def cmd_feedback(message: Message, state: FSMContext):
+    await message.answer(
+        "📝 *Обратная связь*\n\n"
+        "Напиши своё сообщение администратору. Это может быть баг, предложение или жалоба.\n\n"
+        "Я перешлю его разработчикам!",
+        parse_mode="Markdown",
+        reply_markup=cancel_kb()
+    )
+    await state.set_state(FeedbackStates.waiting_feedback)
+
+@router.message(FeedbackStates.waiting_feedback)
+async def process_feedback(message: Message, state: FSMContext):
+    if message.text == "◀️ Отмена":
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_kb())
+        return
+
+    feedback_text = message.text.strip()
+    from handlers.admin import ADMIN_IDS
+    
+    user_name = message.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
+    user_link = f"@{message.from_user.username}" if message.from_user.username else f'<a href="tg://user?id={message.from_user.id}">{user_name}</a>'
+    
+    admin_msg = (
+        f"📩 <b>НОВОЕ СООБЩЕНИЕ АДМИНУ</b>\n\n"
+        f"👤 От: {user_link} (ID: <code>{message.from_user.id}</code>)\n\n"
+        f"💬 Текст:\n{feedback_text}"
+    )
+
+    for admin_id in ADMIN_IDS:
+        try:
+            await message.bot.send_message(admin_id, admin_msg, parse_mode="HTML")
+        except: pass
+
+    await state.clear()
+    await message.answer(
+        "✅ Твоё сообщение отправлено администратору! Спасибо за обратную связь.",
+        reply_markup=main_menu_kb()
+    )
