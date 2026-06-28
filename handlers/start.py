@@ -27,18 +27,18 @@ def get_stars_local(rating: float) -> str:
     full = int(round(rating or 0))
     return "⭐" * full + "☆" * (5 - full)
 
-def format_profile_local(user: dict) -> str:
-    name = user.get("first_name", "Аноним")
+def format_profile_html(user: dict) -> str:
+    name = user.get("first_name", "Аноним").replace("<", "&lt;").replace(">", "&gt;")
     username = f"@{user['username']}" if user.get("username") else "id" + str(user['id'])
     age = f"{user['age']} лет" if user.get("age") else "не указан"
-    bio = user.get("bio") or "не заполнено"
+    bio = (user.get("bio") or "не заполнено").replace("<", "&lt;").replace(">", "&gt;")
     rating = user.get("rating", 0.0)
     reviews_count = user.get("reviews_count", 0)
 
     return (
-        f"👤 *{name}* ({username})\n"
+        f"👤 <b>{name}</b> ({username})\n"
         f"🎂 Возраст: {age}\n"
-        f"📝 О себе: {bio}\n"
+        f"📝 О себе: <i>{bio}</i>\n"
         f"⭐ Рейтинг: {get_stars_local(rating)} ({rating:.1f} / {reviews_count} отзывов)"
     )
 
@@ -124,8 +124,7 @@ async def cmd_profile(message: Message, state: FSMContext):
         await state.clear()
         from database.db import get_user, create_user, get_user_active_listing, get_user_reviews
         from utils.keyboards import my_listing_actions_kb, main_menu_kb
-        import logging
-
+        
         user_id = message.from_user.id
         user = await get_user(user_id)
         
@@ -133,34 +132,33 @@ async def cmd_profile(message: Message, state: FSMContext):
             await create_user(user_id, message.from_user.username, message.from_user.first_name)
             user = await get_user(user_id)
 
-        # Используем локальные функции, чтобы избежать ошибок импорта
-        profile_text = format_profile_local(user)
+        profile_text = format_profile_html(user)
         reviews = await get_user_reviews(user_id)
 
         if reviews:
-            profile_text += "\n\n*Последние отзывы (взаимные):*\n"
+            profile_text += "\n\n<b>Последние отзывы (взаимные):</b>\n"
             for r in reviews[:3]:
-                author = r.get("author_name", "Аноним")
-                profile_text += f"\n{get_stars_local(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
+                author = r.get("author_name", "Аноним").replace("<", "&lt;").replace(">", "&gt;")
+                profile_text += f"\n{get_stars_local(r['rating'])} от <b>{author}</b>\n<i>{r.get('text', '') or 'без текста'}</i>\n"
 
         anketa = await get_user_active_listing(user_id)
         if anketa and anketa.get('photo_id'):
             anketa_text = (
-                f"\n🔥 *Твой активный движ:*\n"
-                f"📌 *{anketa['title']}*\n"
+                f"\n🔥 <b>Твой активный движ:</b>\n"
+                f"📌 <b>{anketa['title']}</b>\n"
                 f"⏳ Активен до: {anketa['expires_at']}\n"
             )
             try:
                 await message.answer_photo(
                     photo=anketa['photo_id'], 
                     caption=profile_text + "\n" + anketa_text, 
-                    parse_mode="Markdown", 
+                    parse_mode="HTML", 
                     reply_markup=my_listing_actions_kb(anketa['id'])
                 )
                 return
             except: pass
         
-        await message.answer(profile_text, parse_mode="Markdown", reply_markup=main_menu_kb())
+        await message.answer(profile_text, parse_mode="HTML", reply_markup=main_menu_kb())
         
     except Exception as e:
         import logging
