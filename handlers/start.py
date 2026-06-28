@@ -23,11 +23,11 @@ WELCOME_TEXT = """
 ⚠️ *Важно:* Сервис только для совершеннолетних (18+). Пей ответственно!
 """
 
-def get_stars(rating: float) -> str:
-    full = int(round(rating))
+def get_stars_local(rating: float) -> str:
+    full = int(round(rating or 0))
     return "⭐" * full + "☆" * (5 - full)
 
-def format_profile(user: dict) -> str:
+def format_profile_local(user: dict) -> str:
     name = user.get("first_name", "Аноним")
     username = f"@{user['username']}" if user.get("username") else "id" + str(user['id'])
     age = f"{user['age']} лет" if user.get("age") else "не указан"
@@ -39,7 +39,7 @@ def format_profile(user: dict) -> str:
         f"👤 *{name}* ({username})\n"
         f"🎂 Возраст: {age}\n"
         f"📝 О себе: {bio}\n"
-        f"⭐ Рейтинг: {get_stars(rating)} ({rating:.1f} / {reviews_count} отзывов)"
+        f"⭐ Рейтинг: {get_stars_local(rating)} ({rating:.1f} / {reviews_count} отзывов)"
     )
 
 @router.message(CommandStart())
@@ -124,74 +124,48 @@ async def cmd_profile(message: Message, state: FSMContext):
         await state.clear()
         from database.db import get_user, create_user, get_user_active_listing, get_user_reviews
         from utils.keyboards import my_listing_actions_kb, main_menu_kb
-        from utils.helpers import format_profile, get_stars
         import logging
 
         user_id = message.from_user.id
         user = await get_user(user_id)
         
-        # Если пользователя нет в БД, создаем его немедленно
         if not user:
-            logging.info(f"User {user_id} not found in DB, creating...")
             await create_user(user_id, message.from_user.username, message.from_user.first_name)
             user = await get_user(user_id)
 
-        # Если всё равно не удалось получить (ошибка БД), формируем временный объект
-        if not user:
-            user = {
-                "id": user_id,
-                "first_name": message.from_user.first_name,
-                "username": message.from_user.username,
-                "rating": 5.0,
-                "reviews_count": 0,
-                "age": None,
-                "bio": None
-            }
-        
-        anketa = await get_user_active_listing(user_id)
-        profile_text = format_profile(user)
+        # Используем локальные функции, чтобы избежать ошибок импорта
+        profile_text = format_profile_local(user)
         reviews = await get_user_reviews(user_id)
 
         if reviews:
             profile_text += "\n\n*Последние отзывы (взаимные):*\n"
             for r in reviews[:3]:
                 author = r.get("author_name", "Аноним")
-                profile_text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
+                profile_text += f"\n{get_stars_local(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
 
-        # Если есть активная анкета, показываем её с фото
+        anketa = await get_user_active_listing(user_id)
         if anketa and anketa.get('photo_id'):
             anketa_text = (
                 f"\n🔥 *Твой активный движ:*\n"
                 f"📌 *{anketa['title']}*\n"
                 f"⏳ Активен до: {anketa['expires_at']}\n"
             )
-            full_text = profile_text + "\n" + anketa_text
-            
             try:
                 await message.answer_photo(
                     photo=anketa['photo_id'], 
-                    caption=full_text, 
+                    caption=profile_text + "\n" + anketa_text, 
                     parse_mode="Markdown", 
                     reply_markup=my_listing_actions_kb(anketa['id'])
                 )
                 return
-            except Exception as e:
-                logging.error(f"Photo send failed for user {user_id}: {e}")
+            except: pass
         
-        # Если фото нет, шлем просто текст
         await message.answer(profile_text, parse_mode="Markdown", reply_markup=main_menu_kb())
         
     except Exception as e:
         import logging
-        logging.error(f"FATAL ERROR in cmd_profile for user {message.from_user.id}: {e}")
-        # Крайний случай — простое текстовое сообщение
-        await message.answer(
-            f"👤 *Профиль {message.from_user.first_name}*\n\n"
-            f"Произошла техническая ошибка при загрузке данных. Мы уже работаем над этим!\n"
-            f"Попробуй нажать /start",
-            parse_mode="Markdown",
-            reply_markup=main_menu_kb()
-        )
+        logging.error(f"FATAL ERROR in cmd_profile: {e}")
+        await message.answer("⚠️ Ошибка профиля. Попробуй /start")
 
 @router.message(F.text == "📜 Репутация")
 async def cmd_my_reviews(message: Message):
