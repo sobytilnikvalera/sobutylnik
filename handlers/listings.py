@@ -19,7 +19,7 @@ router = Router()
 
 # ─── СОЗДАНИЕ АНКЕТЫ (ЗАМУТИТЬ ДВИЖ) ──────────────────────────────────────────
 
-@router.message(F.text == "🍻 Ищу собутыльника")
+@router.message(F.text == "🍻 Замутить движ")
 async def cmd_create_listing(message: Message, state: FSMContext):
     active = await get_user_active_listing(message.from_user.id)
     if active:
@@ -168,7 +168,7 @@ async def cancel_listing_handler(callback: CallbackQuery, state: FSMContext):
 
 # ─── ПОИСК АНКЕТ (НАЙТИ ВПИСКУ) ────────────────────────────────────────────────
 
-@router.message(F.text == "🕵️ Найти вписку")
+@router.message(F.text == "🕵️ Ищу собутыльника")
 async def cmd_search(message: Message, state: FSMContext):
     await message.answer("Где ищем? Скинь свою локацию.", reply_markup=location_kb())
     await state.set_state(CreateListing.waiting_search_location)

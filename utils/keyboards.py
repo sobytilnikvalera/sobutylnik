@@ -5,7 +5,7 @@ from aiogram.types import (
 
 def main_menu_kb():
     kb = [
-        [KeyboardButton(text="🍻 Ищу собутыльника"), KeyboardButton(text="🕵️ Найти вписку")],
+        [KeyboardButton(text="🍻 Замутить движ"), KeyboardButton(text="🕵️ Ищу собутыльника")],
         [KeyboardButton(text="❤️ Мои матчи"), KeyboardButton(text="😎 Мой профиль")],
         [KeyboardButton(text="📜 Репутация"), KeyboardButton(text="📩 Написать админу")]
     ]

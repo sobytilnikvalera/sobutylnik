@@ -122,29 +122,43 @@ async def process_bio(message: Message, state: FSMContext):
 async def cmd_profile(message: Message, state: FSMContext):
     try:
         await state.clear()
-        user = await get_user(message.from_user.id)
-        
-        # Если пользователя нет в БД, создаем его (на всякий случай)
-        if not user:
-            from database.db import create_user
-            await create_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
-            user = await get_user(message.from_user.id)
+        from database.db import get_user, create_user, get_user_active_listing, get_user_reviews
+        from utils.keyboards import my_listing_actions_kb, main_menu_kb
+        from utils.helpers import format_profile, get_stars
+        import logging
 
-        from database.db import get_user_active_listing
-        from utils.keyboards import my_listing_actions_kb
+        user_id = message.from_user.id
+        user = await get_user(user_id)
         
-        anketa = await get_user_active_listing(message.from_user.id)
+        # Если пользователя нет в БД, создаем его немедленно
+        if not user:
+            logging.info(f"User {user_id} not found in DB, creating...")
+            await create_user(user_id, message.from_user.username, message.from_user.first_name)
+            user = await get_user(user_id)
+
+        # Если всё равно не удалось получить (ошибка БД), формируем временный объект
+        if not user:
+            user = {
+                "id": user_id,
+                "first_name": message.from_user.first_name,
+                "username": message.from_user.username,
+                "rating": 5.0,
+                "reviews_count": 0,
+                "age": None,
+                "bio": None
+            }
         
+        anketa = await get_user_active_listing(user_id)
         profile_text = format_profile(user)
-        reviews = await get_user_reviews(message.from_user.id)
+        reviews = await get_user_reviews(user_id)
 
         if reviews:
-            profile_text += "\n\n*Последние отзывы (видны только взаимные):*\n"
+            profile_text += "\n\n*Последние отзывы (взаимные):*\n"
             for r in reviews[:3]:
                 author = r.get("author_name", "Аноним")
                 profile_text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
 
-        # Если есть активная анкета, показываем её
+        # Если есть активная анкета, показываем её с фото
         if anketa and anketa.get('photo_id'):
             anketa_text = (
                 f"\n🔥 *Твой активный движ:*\n"
@@ -162,15 +176,22 @@ async def cmd_profile(message: Message, state: FSMContext):
                 )
                 return
             except Exception as e:
-                logging.error(f"Photo send failed: {e}")
+                logging.error(f"Photo send failed for user {user_id}: {e}")
         
-        # Если фото нет или не отправилось, шлем просто текст
+        # Если фото нет, шлем просто текст
         await message.answer(profile_text, parse_mode="Markdown", reply_markup=main_menu_kb())
         
     except Exception as e:
         import logging
-        logging.error(f"CRITICAL ERROR in cmd_profile: {e}")
-        await message.answer("⚠️ Ошибка при загрузке профиля. Попробуй /start")
+        logging.error(f"FATAL ERROR in cmd_profile for user {message.from_user.id}: {e}")
+        # Крайний случай — простое текстовое сообщение
+        await message.answer(
+            f"👤 *Профиль {message.from_user.first_name}*\n\n"
+            f"Произошла техническая ошибка при загрузке данных. Мы уже работаем над этим!\n"
+            f"Попробуй нажать /start",
+            parse_mode="Markdown",
+            reply_markup=main_menu_kb()
+        )
 
 @router.message(F.text == "📜 Репутация")
 async def cmd_my_reviews(message: Message):
