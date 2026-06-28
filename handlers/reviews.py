@@ -119,7 +119,8 @@ async def process_review_text(message: Message, state: FSMContext, bot: Bot):
         )
         return
 
-    await create_review(
+    # Теперь create_review возвращает True, если оба участника оставили отзывы
+    both_done = await create_review(
         meeting_id=meeting_id,
         from_user_id=message.from_user.id,
         to_user_id=to_user_id,
@@ -127,31 +128,42 @@ async def process_review_text(message: Message, state: FSMContext, bot: Bot):
         text=review_text
     )
 
-    await message.answer(
-        f"✅ *Отзыв сохранён!*\n\n"
-        f"Оценка: {stars(rating)} ({rating}/5)\n"
-        f"О: *{to_user_name}*\n"
-        f"Текст: _{review_text or 'без текста'}_\n\n"
-        f"⚠️ Отзыв нельзя редактировать или удалять — это гарантирует честность системы.",
-        parse_mode="Markdown",
-        reply_markup=main_menu_kb()
-    )
-
-    # Уведомляем получателя отзыва
-    author = await get_user(message.from_user.id)
-    author_name = author["first_name"] if author else "Кто-то"
-
-    try:
-        notify = (
-            f"🔔 *Новый отзыв о тебе!*\n\n"
-            f"От: *{author_name}*\n"
-            f"Оценка: {stars(rating)} ({rating}/5)\n"
+    if not both_done:
+        await message.answer(
+            f"✅ *Твой отзыв принят!*\n\n"
+            f"Оценка: {stars(rating)} ({rating}/5)\n\n"
+            f"🤫 *Слепая система:* Твой отзыв станет виден второму участнику, а его отзыв — тебе, только когда вы **оба** их напишете. Это честно!",
+            parse_mode="Markdown",
+            reply_markup=main_menu_kb()
         )
-        if review_text:
-            notify += f"Текст: _{review_text}_"
-        await bot.send_message(to_user_id, notify, parse_mode="Markdown")
-    except Exception:
-        pass
+        
+        # Уведомляем второго участника, что пора бы тоже оставить отзыв
+        try:
+            await bot.send_message(
+                to_user_id, 
+                f"🔔 *Второй участник встречи оставил отзыв о тебе!*\n\n"
+                f"Напиши свой отзыв в ответ, чтобы вы оба смогли их прочитать: /review_{meeting_id}",
+                parse_mode="Markdown"
+            )
+        except: pass
+    else:
+        # Если оба оставили отзывы
+        await message.answer(
+            f"✅ *Отзыв принят!*\n\n"
+            f"🎉 Теперь вы оба оставили отзывы! Твой рейтинг и отзывы обновлены. Можешь посмотреть их в профиле.",
+            parse_mode="Markdown",
+            reply_markup=main_menu_kb()
+        )
+        
+        # Уведомляем второго участника
+        try:
+            await bot.send_message(
+                to_user_id, 
+                f"🎉 *Второй участник тоже оставил отзыв!*\n\n"
+                f"Теперь ваши отзывы опубликованы и рейтинг обновлен. Загляни в «😎 Мой профиль»!",
+                parse_mode="Markdown"
+            )
+        except: pass
 
 
 # ─── ПРОСМОТР ОТЗЫВОВ ─────────────────────────────────────────────────────────

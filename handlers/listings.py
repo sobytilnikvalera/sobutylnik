@@ -19,7 +19,7 @@ router = Router()
 
 # ─── СОЗДАНИЕ АНКЕТЫ (ЗАМУТИТЬ ДВИЖ) ──────────────────────────────────────────
 
-@router.message(F.text == "🍻 Замутить движ")
+@router.message(F.text == "🍻 Ищу собутыльника")
 async def cmd_create_listing(message: Message, state: FSMContext):
     active = await get_user_active_listing(message.from_user.id)
     if active:

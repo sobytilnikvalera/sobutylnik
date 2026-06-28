@@ -115,13 +115,17 @@ async def update_user_profile(user_id: int, age: Optional[int], bio: Optional[st
         await db.commit()
 
 async def get_user_reviews(user_id: int) -> List[Dict]:
+    """Получить отзывы пользователя, но только те, где оба участника встречи оставили отзыв."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
-            SELECT r.*, u.first_name as author_name 
+            SELECT r.*, u.first_name as author_name, u.username as author_username
             FROM reviews r
             JOIN users u ON r.from_user_id = u.id
-            WHERE r.to_user_id = ?
+            WHERE r.to_user_id = ? 
+              AND r.meeting_id IN (
+                  SELECT meeting_id FROM reviews GROUP BY meeting_id HAVING COUNT(id) >= 2
+              )
             ORDER BY r.created_at DESC
         """, (user_id,)) as cur:
             rows = await cur.fetchall()
@@ -227,23 +231,42 @@ async def create_meeting(listing_id: int, host_id: int, guest_id: int) -> int:
         await db.commit()
         return cur.lastrowid
 
-async def create_review(meeting_id: int, from_user_id: int, to_user_id: int, rating: int, text: str) -> None:
+async def create_review(meeting_id: int, from_user_id: int, to_user_id: int, rating: int, text: str) -> bool:
+    """Создать отзыв. Возвращает True, если это второй отзыв во встрече (т.е. теперь оба оставили)."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             INSERT INTO reviews (meeting_id, from_user_id, to_user_id, rating, text)
             VALUES (?, ?, ?, ?, ?)
         """, (meeting_id, from_user_id, to_user_id, rating, text))
         
-        # Обновляем средний рейтинг пользователя
-        async with db.execute("SELECT AVG(rating), COUNT(id) FROM reviews WHERE to_user_id = ?", (to_user_id,)) as cur:
-            row = await cur.fetchone()
-            if row:
-                avg_rating, count = row
-                await db.execute(
-                    "UPDATE users SET rating = ?, reviews_count = ? WHERE id = ?",
-                    (avg_rating, count, to_user_id)
-                )
+        # Проверяем, сколько отзывов теперь у этой встречи
+        async with db.execute("SELECT COUNT(id) FROM reviews WHERE meeting_id = ?", (meeting_id,)) as cur:
+            count_meeting = (await cur.fetchone())[0]
+            
+        if count_meeting >= 2:
+            # Если оба оставили, обновляем рейтинг для ОБОИХ участников этой встречи
+            # Сначала найдем всех участников этой встречи
+            async with db.execute("SELECT host_id, guest_id FROM meetings WHERE id = ?", (meeting_id,)) as cur:
+                meeting = await cur.fetchone()
+                if meeting:
+                    for uid in [meeting[0], meeting[1]]:
+                        # Считаем рейтинг только по "завершенным" (взаимным) отзывам
+                        async with db.execute("""
+                            SELECT AVG(rating), COUNT(id) FROM reviews 
+                            WHERE to_user_id = ? 
+                              AND meeting_id IN (SELECT meeting_id FROM reviews GROUP BY meeting_id HAVING COUNT(id) >= 2)
+                        """, (uid,)) as cur_rating:
+                            row = await cur_rating.fetchone()
+                            if row and row[1] > 0:
+                                await db.execute(
+                                    "UPDATE users SET rating = ?, reviews_count = ? WHERE id = ?",
+                                    (row[0], row[1], uid)
+                                )
+            await db.commit()
+            return True
+            
         await db.commit()
+        return False
 
 async def get_listing(listing_id: int) -> Optional[Dict]:
     async with aiosqlite.connect(DB_PATH) as db:

@@ -123,9 +123,12 @@ async def cmd_profile(message: Message, state: FSMContext):
     try:
         await state.clear()
         user = await get_user(message.from_user.id)
+        
+        # Если пользователя нет в БД, создаем его (на всякий случай)
         if not user:
-            await message.answer("Сначала зарегистрируйся — нажми /start")
-            return
+            from database.db import create_user
+            await create_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
+            user = await get_user(message.from_user.id)
 
         from database.db import get_user_active_listing
         from utils.keyboards import my_listing_actions_kb
@@ -136,13 +139,13 @@ async def cmd_profile(message: Message, state: FSMContext):
         reviews = await get_user_reviews(message.from_user.id)
 
         if reviews:
-            profile_text += "\n\n*Последние отзывы:*\n"
+            profile_text += "\n\n*Последние отзывы (видны только взаимные):*\n"
             for r in reviews[:3]:
                 author = r.get("author_name", "Аноним")
                 profile_text += f"\n{get_stars(r['rating'])} от *{author}*\n_{r.get('text', '') or 'без текста'}_\n"
 
-        # Если есть активная анкета, показываем её вместе с профилем
-        if anketa:
+        # Если есть активная анкета, показываем её
+        if anketa and anketa.get('photo_id'):
             anketa_text = (
                 f"\n🔥 *Твой активный движ:*\n"
                 f"📌 *{anketa['title']}*\n"
@@ -151,25 +154,23 @@ async def cmd_profile(message: Message, state: FSMContext):
             full_text = profile_text + "\n" + anketa_text
             
             try:
-                # Пытаемся отправить фото, если оно есть
-                if anketa.get('photo_id'):
-                    await message.answer_photo(
-                        photo=anketa['photo_id'], 
-                        caption=full_text, 
-                        parse_mode="Markdown", 
-                        reply_markup=my_listing_actions_kb(anketa['id'])
-                    )
-                else:
-                    await message.answer(full_text, parse_mode="Markdown", reply_markup=my_listing_actions_kb(anketa['id']))
+                await message.answer_photo(
+                    photo=anketa['photo_id'], 
+                    caption=full_text, 
+                    parse_mode="Markdown", 
+                    reply_markup=my_listing_actions_kb(anketa['id'])
+                )
+                return
             except Exception as e:
-                # Если фото не отправилось (например, неверный file_id), отправляем текстом
-                await message.answer(full_text, parse_mode="Markdown", reply_markup=my_listing_actions_kb(anketa['id']))
-        else:
-            await message.answer(profile_text, parse_mode="Markdown", reply_markup=main_menu_kb())
+                logging.error(f"Photo send failed: {e}")
+        
+        # Если фото нет или не отправилось, шлем просто текст
+        await message.answer(profile_text, parse_mode="Markdown", reply_markup=main_menu_kb())
+        
     except Exception as e:
         import logging
-        logging.error(f"Error in cmd_profile: {e}")
-        await message.answer("Произошла ошибка при загрузке профиля. Попробуй позже.")
+        logging.error(f"CRITICAL ERROR in cmd_profile: {e}")
+        await message.answer("⚠️ Ошибка при загрузке профиля. Попробуй /start")
 
 @router.message(F.text == "📜 Репутация")
 async def cmd_my_reviews(message: Message):
