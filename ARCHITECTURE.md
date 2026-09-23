@@ -3,7 +3,7 @@
 ## Стек технологий
 - Python 3.11
 - aiogram 3.x (Telegram Bot Framework)
-- SQLite (через aiosqlite) — лёгкая встроенная БД
+- PostgreSQL (через asyncpg) — внешняя БД, сохраняющая данные при перезапусках Render
 - geopy — расчёт расстояний между координатами
 - APScheduler — автоматическое истечение объявлений
 

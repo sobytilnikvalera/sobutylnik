@@ -5,9 +5,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import os
 import asyncio
-import aiosqlite
 
-from database.db import DB_PATH, get_listing, close_listing
+from database.db import (
+    admin_ban_user as db_admin_ban_user,
+    admin_counts,
+    admin_list_users,
+    admin_user_ids,
+    close_listing,
+    get_listing,
+)
 
 router = Router()
 
@@ -33,11 +39,7 @@ async def cmd_admin(message: Message):
     if not is_admin(message.from_user.id):
         return
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM users") as cur:
-            users_count = (await cur.fetchone())[0]
-        async with db.execute("SELECT COUNT(*) FROM listings WHERE status = 'active'") as cur:
-            active_listings = (await cur.fetchone())[0]
+    users_count, active_listings = await admin_counts()
 
     stats = (
         f"🛠 <b>Админ-панель</b>\n\n"
@@ -112,19 +114,14 @@ async def admin_delete_listing(callback: CallbackQuery):
 async def admin_ban_user(callback: CallbackQuery):
     if not is_admin(callback.from_user.id): return
     u_id = int(callback.data.split(":")[1])
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE users SET is_banned = 1 WHERE id = ?", (u_id,))
-        await db.commit()
+    await db_admin_ban_user(u_id)
     await callback.message.answer(f"🔨 Пользователь {u_id} забанен.")
     await callback.answer()
 
 @router.callback_query(F.data == "admin_users_list")
 async def admin_users_list(callback: CallbackQuery):
     if not is_admin(callback.from_user.id): return
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT id, first_name, username FROM users ORDER BY created_at DESC LIMIT 15") as cur:
-            rows = await cur.fetchall()
+    rows = await admin_list_users()
             
     text = "👥 <b>Последние 15 юзеров:</b>\n"
     for r in rows:
@@ -147,14 +144,12 @@ async def admin_broadcast_process(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     text = message.text.strip()
     
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT id FROM users") as cur:
-            users = await cur.fetchall()
+    users = await admin_user_ids()
             
     count = 0
-    for u in users:
+    for user_id in users:
         try:
-            await message.bot.send_message(u[0], f"📢 <b>Объявление от админа:</b>\n\n{text}", parse_mode="HTML")
+            await message.bot.send_message(user_id, f"📢 <b>Объявление от админа:</b>\n\n{text}", parse_mode="HTML")
             count += 1
             await asyncio.sleep(0.05)
         except: pass

@@ -1,360 +1,295 @@
-import aiosqlite
-import asyncio
 import os
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 
-DB_PATH = os.getenv("DB_PATH", "sobutylnik.db")
-db_directory = os.path.dirname(DB_PATH)
-if db_directory:
-    os.makedirs(db_directory, exist_ok=True)
+import asyncpg
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+async def _connect():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL environment variable is not set")
+    url = DATABASE_URL
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    return await asyncpg.connect(url, ssl="require")
+
+
+async def _fetchrow(query: str, *args):
+    db = await _connect()
+    try:
+        row = await db.fetchrow(query, *args)
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def _fetch(query: str, *args):
+    db = await _connect()
+    try:
+        return [dict(row) for row in await db.fetch(query, *args)]
+    finally:
+        await db.close()
+
+
+async def _execute(query: str, *args):
+    db = await _connect()
+    try:
+        return await db.execute(query, *args)
+    finally:
+        await db.close()
+
 
 async def init_db():
-    """Инициализация базы данных и создание таблиц."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    """Initialize the PostgreSQL schema used by the bot."""
+    db = await _connect()
+    try:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
+                id BIGINT PRIMARY KEY,
                 username TEXT,
                 first_name TEXT NOT NULL,
                 age INTEGER,
                 bio TEXT,
-                rating REAL DEFAULT 0.0,
+                rating DOUBLE PRECISION DEFAULT 0.0,
                 reviews_count INTEGER DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                 is_banned INTEGER DEFAULT 0
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS listings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id),
                 title TEXT NOT NULL,
                 description TEXT,
                 drinks TEXT,
                 snacks TEXT,
-                photo_id TEXT, -- Поле для хранения ID фото из Telegram
-                latitude REAL NOT NULL,
-                longitude REAL NOT NULL,
+                photo_id TEXT,
+                latitude DOUBLE PRECISION NOT NULL,
+                longitude DOUBLE PRECISION NOT NULL,
                 location_name TEXT,
                 max_people INTEGER DEFAULT 1,
                 status TEXT DEFAULT 'active',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                expires_at DATETIME,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMPTZ
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS likes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                from_user_id INTEGER NOT NULL,
-                to_user_id INTEGER NOT NULL,
-                listing_id INTEGER NOT NULL,
-                is_like INTEGER NOT NULL, -- 1 для лайка, 0 для дизлайка
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (from_user_id) REFERENCES users(id),
-                FOREIGN KEY (to_user_id) REFERENCES users(id),
-                FOREIGN KEY (listing_id) REFERENCES listings(id),
+                id BIGSERIAL PRIMARY KEY,
+                from_user_id BIGINT NOT NULL REFERENCES users(id),
+                to_user_id BIGINT NOT NULL REFERENCES users(id),
+                listing_id BIGINT NOT NULL REFERENCES listings(id),
+                is_like INTEGER NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(from_user_id, to_user_id, listing_id)
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS meetings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                listing_id INTEGER NOT NULL,
-                host_id INTEGER NOT NULL,
-                guest_id INTEGER NOT NULL,
+                id BIGSERIAL PRIMARY KEY,
+                listing_id BIGINT NOT NULL REFERENCES listings(id),
+                host_id BIGINT NOT NULL REFERENCES users(id),
+                guest_id BIGINT NOT NULL REFERENCES users(id),
                 status TEXT DEFAULT 'active',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                completed_at DATETIME,
-                FOREIGN KEY (listing_id) REFERENCES listings(id),
-                FOREIGN KEY (host_id) REFERENCES users(id),
-                FOREIGN KEY (guest_id) REFERENCES users(id)
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMPTZ
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS reviews (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                meeting_id INTEGER NOT NULL,
-                from_user_id INTEGER NOT NULL,
-                to_user_id INTEGER NOT NULL,
+                id BIGSERIAL PRIMARY KEY,
+                meeting_id BIGINT NOT NULL REFERENCES meetings(id),
+                from_user_id BIGINT NOT NULL REFERENCES users(id),
+                to_user_id BIGINT NOT NULL REFERENCES users(id),
                 rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
                 text TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (meeting_id) REFERENCES meetings(id),
-                FOREIGN KEY (from_user_id) REFERENCES users(id),
-                FOREIGN KEY (to_user_id) REFERENCES users(id)
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         """)
+    finally:
+        await db.close()
 
-        await db.commit()
-
-# ─── USERS ────────────────────────────────────────────────────────────────────
 
 async def get_user(user_id: int) -> Optional[Dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM users WHERE id = ?", (user_id,)) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    return await _fetchrow("SELECT * FROM users WHERE id = $1", user_id)
+
 
 async def create_user(user_id: int, username: str, first_name: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO users (id, username, first_name) VALUES (?, ?, ?)",
-            (user_id, username, first_name)
-        )
-        await db.commit()
+    await _execute(
+        "INSERT INTO users (id, username, first_name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+        user_id, username, first_name,
+    )
+
 
 async def update_user_profile(user_id: int, age: Optional[int], bio: Optional[str]) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET age = ?, bio = ? WHERE id = ?",
-            (age, bio, user_id)
-        )
-        await db.commit()
+    await _execute("UPDATE users SET age = $1, bio = $2 WHERE id = $3", age, bio, user_id)
+
 
 async def get_user_reviews(user_id: int) -> List[Dict]:
-    """Получить отзывы пользователя, но только те, где оба участника встречи оставили отзыв."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("""
-            SELECT r.*, u.first_name as author_name, u.username as author_username
-            FROM reviews r
-            JOIN users u ON r.from_user_id = u.id
-            WHERE r.to_user_id = ? 
-              AND r.meeting_id IN (
-                  SELECT meeting_id FROM reviews GROUP BY meeting_id HAVING COUNT(id) >= 2
-              )
-            ORDER BY r.created_at DESC
-        """, (user_id,)) as cur:
-            rows = await cur.fetchall()
-            return [dict(row) for row in rows]
+    return await _fetch("""
+        SELECT r.*, u.first_name AS author_name, u.username AS author_username
+        FROM reviews r JOIN users u ON r.from_user_id = u.id
+        WHERE r.to_user_id = $1
+          AND r.meeting_id IN (SELECT meeting_id FROM reviews GROUP BY meeting_id HAVING COUNT(id) >= 2)
+        ORDER BY r.created_at DESC
+    """, user_id)
 
-# ─── LISTINGS ─────────────────────────────────────────────────────────────────
 
-async def create_listing(
-    user_id: int, title: str, description: str,
-    drinks: str, snacks: str, photo_id: str,
-    latitude: float, longitude: float,
-    location_name: str, max_people: int
-) -> int:
-    # Установим время жизни 48 часов, чтобы наверняка
-    # Используем UTC для всех операций со временем
-    expires_at = (datetime.utcnow() + timedelta(hours=48)).strftime('%Y-%m-%d %H:%M:%S')
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("""
-            INSERT INTO listings
-            (user_id, title, description, drinks, snacks, photo_id, latitude, longitude, location_name, max_people, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, title, description, drinks, snacks, photo_id, latitude, longitude, location_name, max_people, expires_at))
-        await db.commit()
-        return cur.lastrowid
+async def create_listing(user_id: int, title: str, description: str, drinks: str, snacks: str,
+                         photo_id: str, latitude: float, longitude: float,
+                         location_name: str, max_people: int) -> int:
+    expires_at = datetime.utcnow() + timedelta(hours=48)
+    row = await _fetchrow("""
+        INSERT INTO listings
+        (user_id, title, description, drinks, snacks, photo_id, latitude, longitude, location_name, max_people, expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id
+    """, user_id, title, description, drinks, snacks, photo_id, latitude, longitude, location_name, max_people, expires_at)
+    return row["id"]
+
 
 async def get_next_listing_for_user(user_id: int, lat: float, lon: float) -> Optional[Dict]:
-    """Получить следующую анкету (без фильтра по расстоянию для тестов), которую пользователь еще не оценивал."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # SQL-запрос с расчетом расстояния, но БЕЗ фильтра <= 5 км
-        query = """
+    now = datetime.utcnow()
+    try:
+        return await _fetchrow("""
             SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count,
-            (6371 * acos(cos(radians(?)) * cos(radians(l.latitude)) * cos(radians(l.longitude) - radians(?)) + sin(radians(?)) * sin(radians(l.latitude)))) AS distance
-            FROM listings l
-            JOIN users u ON l.user_id = u.id
-            WHERE l.status = 'active' 
-              AND l.user_id != ?
-              AND l.expires_at > ?
-              AND l.id NOT IN (SELECT listing_id FROM likes WHERE from_user_id = ?)
-            ORDER BY distance ASC
-            LIMIT 1
-        """
-        
-        try:
-            async with db.execute(query, (lat, lon, lat, user_id, now, user_id)) as cur:
-                row = await cur.fetchone()
-                return dict(row) if row else None
-        except Exception:
-            # Если SQLite не поддерживает acos/cos, просто берем все активные и считаем расстояние в Python
-            async with db.execute("""
-                SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
-                FROM listings l
-                JOIN users u ON l.user_id = u.id
-                WHERE l.status = 'active' 
-                  AND l.user_id != ?
-                  AND l.expires_at > ?
-                  AND l.id NOT IN (SELECT listing_id FROM likes WHERE from_user_id = ?)
-                ORDER BY l.created_at DESC
-            """, (user_id, now, user_id)) as cur:
-                rows = await cur.fetchall()
-                if not rows: return None
-                
-                from utils.helpers import calculate_distance
-                listings_list = [dict(r) for r in rows]
-                for item in listings_list:
-                    item['distance'] = calculate_distance(lat, lon, item['latitude'], item['longitude'])
-                
-                # Возвращаем ближайшую из всех доступных
-                return sorted(listings_list, key=lambda x: x['distance'])[0]
+            (6371 * acos(cos(radians($1)) * cos(radians(l.latitude)) *
+             cos(radians(l.longitude) - radians($2)) + sin(radians($1)) * sin(radians(l.latitude)))) AS distance
+            FROM listings l JOIN users u ON l.user_id = u.id
+            WHERE l.status = 'active' AND l.user_id != $3 AND l.expires_at > $4
+              AND l.id NOT IN (SELECT listing_id FROM likes WHERE from_user_id = $3)
+            ORDER BY distance ASC LIMIT 1
+        """, lat, lon, user_id, now)
+    except Exception:
+        rows = await _fetch("""
+            SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
+            FROM listings l JOIN users u ON l.user_id = u.id
+            WHERE l.status = 'active' AND l.user_id != $1 AND l.expires_at > $2
+              AND l.id NOT IN (SELECT listing_id FROM likes WHERE from_user_id = $1)
+            ORDER BY l.created_at DESC
+        """, user_id, now)
+        if not rows:
+            return None
+        from utils.helpers import calculate_distance
+        for item in rows:
+            item["distance"] = calculate_distance(lat, lon, item["latitude"], item["longitude"])
+        return sorted(rows, key=lambda item: item["distance"])[0]
+
 
 async def add_like(from_user_id: int, to_user_id: int, listing_id: int, is_like: int):
-    # Принудительное приведение к int для надежности
-    f_uid, t_uid, l_id = int(from_user_id), int(to_user_id), int(listing_id)
-    
-    async with aiosqlite.connect(DB_PATH) as db:
-        # 1. Записываем наш лайк
-        # Используем INSERT OR REPLACE, чтобы обновить решение, если пользователь передумал
-        await db.execute("""
-            INSERT OR REPLACE INTO likes (from_user_id, to_user_id, listing_id, is_like)
-            VALUES (?, ?, ?, ?)
-        """, (f_uid, t_uid, l_id, int(is_like)))
-        await db.commit()
-        
-        if is_like == 1:
-            # 2. Ищем ВЗАИМНЫЙ лайк
-            # Матч случается, если t_uid когда-либо лайкнул f_uid (is_like = 1)
-            # Мы проверяем таблицу лайков, где t_uid - отправитель, а f_uid - получатель
-            async with db.execute("""
-                SELECT id FROM likes 
-                WHERE from_user_id = ? AND to_user_id = ? AND is_like = 1
-            """, (t_uid, f_uid)) as cur:
-                match = await cur.fetchone()
-                if match:
-                    return True
+    await _execute("""
+        INSERT INTO likes (from_user_id, to_user_id, listing_id, is_like)
+        VALUES ($1,$2,$3,$4)
+        ON CONFLICT (from_user_id, to_user_id, listing_id)
+        DO UPDATE SET is_like = EXCLUDED.is_like
+    """, int(from_user_id), int(to_user_id), int(listing_id), int(is_like))
+    if is_like == 1:
+        row = await _fetchrow("""
+            SELECT id FROM likes WHERE from_user_id = $1 AND to_user_id = $2 AND is_like = 1
+        """, int(to_user_id), int(from_user_id))
+        return row is not None
     return False
 
+
 async def get_user_active_listing(user_id: int) -> Optional[Dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        async with db.execute("""
-            SELECT * FROM listings 
-            WHERE user_id = ? AND status = 'active' AND expires_at > ?
-        """, (user_id, now)) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    return await _fetchrow("""
+        SELECT * FROM listings WHERE user_id = $1 AND status = 'active' AND expires_at > CURRENT_TIMESTAMP
+    """, user_id)
+
 
 async def close_listing(listing_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE listings SET status = 'closed' WHERE id = ?", (listing_id,))
-        await db.commit()
+    await _execute("UPDATE listings SET status = 'closed' WHERE id = $1", listing_id)
+
 
 async def expire_old_listings() -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            UPDATE listings SET status = 'expired'
-            WHERE status = 'active' AND expires_at <= CURRENT_TIMESTAMP
-        """)
-        await db.commit()
+    await _execute("UPDATE listings SET status = 'expired' WHERE status = 'active' AND expires_at <= CURRENT_TIMESTAMP")
 
-# ─── MEETINGS & REVIEWS (оставляем для системы отзывов) ────────────────────────
 
 async def create_meeting(listing_id: int, host_id: int, guest_id: int) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("""
-            INSERT INTO meetings (listing_id, host_id, guest_id)
-            VALUES (?, ?, ?)
-        """, (listing_id, host_id, guest_id))
-        await db.commit()
-        return cur.lastrowid
+    row = await _fetchrow("""
+        INSERT INTO meetings (listing_id, host_id, guest_id) VALUES ($1,$2,$3) RETURNING id
+    """, listing_id, host_id, guest_id)
+    return row["id"]
+
 
 async def create_review(meeting_id: int, from_user_id: int, to_user_id: int, rating: int, text: str) -> bool:
-    """Создать отзыв. Возвращает True, если это второй отзыв во встрече (т.е. теперь оба оставили)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT INTO reviews (meeting_id, from_user_id, to_user_id, rating, text)
-            VALUES (?, ?, ?, ?, ?)
-        """, (meeting_id, from_user_id, to_user_id, rating, text))
-        
-        # Проверяем, сколько отзывов теперь у этой встречи
-        async with db.execute("SELECT COUNT(id) FROM reviews WHERE meeting_id = ?", (meeting_id,)) as cur:
-            count_meeting = (await cur.fetchone())[0]
-            
-        if count_meeting >= 2:
-            # Если оба оставили, обновляем рейтинг для ОБОИХ участников этой встречи
-            # Сначала найдем всех участников этой встречи
-            async with db.execute("SELECT host_id, guest_id FROM meetings WHERE id = ?", (meeting_id,)) as cur:
-                meeting = await cur.fetchone()
+    db = await _connect()
+    try:
+        async with db.transaction():
+            await db.execute("""
+                INSERT INTO reviews (meeting_id, from_user_id, to_user_id, rating, text)
+                VALUES ($1,$2,$3,$4,$5)
+            """, meeting_id, from_user_id, to_user_id, rating, text)
+            count = await db.fetchval("SELECT COUNT(id) FROM reviews WHERE meeting_id = $1", meeting_id)
+            if count >= 2:
+                meeting = await db.fetchrow("SELECT host_id, guest_id FROM meetings WHERE id = $1", meeting_id)
                 if meeting:
-                    for uid in [meeting[0], meeting[1]]:
-                        # Считаем рейтинг только по "завершенным" (взаимным) отзывам
-                        async with db.execute("""
-                            SELECT AVG(rating), COUNT(id) FROM reviews 
-                            WHERE to_user_id = ? 
-                              AND meeting_id IN (SELECT meeting_id FROM reviews GROUP BY meeting_id HAVING COUNT(id) >= 2)
-                        """, (uid,)) as cur_rating:
-                            row = await cur_rating.fetchone()
-                            if row and row[1] > 0:
-                                await db.execute(
-                                    "UPDATE users SET rating = ?, reviews_count = ? WHERE id = ?",
-                                    (row[0], row[1], uid)
-                                )
-            await db.commit()
-            return True
-            
-        await db.commit()
-        return False
+                    for uid in (meeting["host_id"], meeting["guest_id"]):
+                        row = await db.fetchrow("""
+                            SELECT AVG(rating) AS avg_rating, COUNT(id) AS review_count
+                            FROM reviews
+                            WHERE to_user_id = $1 AND meeting_id IN
+                              (SELECT meeting_id FROM reviews GROUP BY meeting_id HAVING COUNT(id) >= 2)
+                        """, uid)
+                        if row and row["review_count"] > 0:
+                            await db.execute("UPDATE users SET rating = $1, reviews_count = $2 WHERE id = $3",
+                                             row["avg_rating"], row["review_count"], uid)
+                return True
+            return False
+    finally:
+        await db.close()
+
 
 async def get_listing(listing_id: int) -> Optional[Dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("""
-            SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
-            FROM listings l
-            JOIN users u ON l.user_id = u.id
-            WHERE l.id = ?
-        """, (listing_id,)) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    return await _fetchrow("""
+        SELECT l.*, u.first_name, u.username, u.rating, u.reviews_count
+        FROM listings l JOIN users u ON l.user_id = u.id WHERE l.id = $1
+    """, listing_id)
+
 
 async def get_meeting(meeting_id: int) -> Optional[Dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("""
-            SELECT m.*, 
-                   u1.first_name as host_name, u1.username as host_username,
-                   u2.first_name as guest_name, u2.username as guest_username
-            FROM meetings m
-            JOIN users u1 ON m.host_id = u1.id
-            JOIN users u2 ON m.guest_id = u2.id
-            WHERE m.id = ?
-        """, (meeting_id,)) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    return await _fetchrow("""
+        SELECT m.*, u1.first_name AS host_name, u1.username AS host_username,
+               u2.first_name AS guest_name, u2.username AS guest_username
+        FROM meetings m JOIN users u1 ON m.host_id = u1.id JOIN users u2 ON m.guest_id = u2.id
+        WHERE m.id = $1
+    """, meeting_id)
+
 
 async def get_user_meetings(user_id: int) -> List[Dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("""
-            SELECT m.*, 
-                   u1.first_name as host_name, u2.first_name as guest_name
-            FROM meetings m
-            JOIN users u1 ON m.host_id = u1.id
-            JOIN users u2 ON m.guest_id = u2.id
-            WHERE m.host_id = ? OR m.guest_id = ?
-            ORDER BY m.created_at DESC
-        """, (user_id, user_id)) as cur:
-            rows = await cur.fetchall()
-            return [dict(row) for row in rows]
+    return await _fetch("""
+        SELECT m.*, u1.first_name AS host_name, u2.first_name AS guest_name
+        FROM meetings m JOIN users u1 ON m.host_id = u1.id JOIN users u2 ON m.guest_id = u2.id
+        WHERE m.host_id = $1 OR m.guest_id = $1 ORDER BY m.created_at DESC
+    """, user_id)
+
 
 async def complete_meeting(meeting_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE meetings SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (meeting_id,)
-        )
-        await db.commit()
+    await _execute("UPDATE meetings SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = $1", meeting_id)
+
 
 async def has_review(meeting_id: int, from_user_id: int) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT id FROM reviews WHERE meeting_id = ? AND from_user_id = ?",
-            (meeting_id, from_user_id)
-        ) as cur:
-            row = await cur.fetchone()
-            return row is not None
+    return await _fetchrow("SELECT id FROM reviews WHERE meeting_id = $1 AND from_user_id = $2", meeting_id, from_user_id) is not None
+
+
+async def admin_counts():
+    row = await _fetchrow("""
+        SELECT (SELECT COUNT(*) FROM users) AS users_count,
+               (SELECT COUNT(*) FROM listings WHERE status = 'active') AS active_listings
+    """)
+    return row["users_count"], row["active_listings"]
+
+
+async def admin_ban_user(user_id: int) -> None:
+    await _execute("UPDATE users SET is_banned = 1 WHERE id = $1", user_id)
+
+
+async def admin_list_users(limit: int = 15) -> List[Dict]:
+    return await _fetch("SELECT id, first_name, username FROM users ORDER BY created_at DESC LIMIT $1", limit)
+
+
+async def admin_user_ids() -> List[int]:
+    rows = await _fetch("SELECT id FROM users")
+    return [row["id"] for row in rows]
