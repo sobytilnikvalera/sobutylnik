@@ -1,9 +1,13 @@
 import aiosqlite
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
-DB_PATH = "sobutylnik.db"
+DB_PATH = os.getenv("DB_PATH", "sobutylnik.db")
+db_directory = os.path.dirname(DB_PATH)
+if db_directory:
+    os.makedirs(db_directory, exist_ok=True)
 
 async def init_db():
     """Инициализация базы данных и создание таблиц."""
