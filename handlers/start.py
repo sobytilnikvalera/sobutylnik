@@ -47,6 +47,10 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     user = await get_user(message.from_user.id)
 
+    if user and user.get("is_banned"):
+        await message.answer("⛔ Доступ к боту ограничен администратором.")
+        return
+
     if not user:
         await create_user(
             message.from_user.id,

@@ -293,3 +293,28 @@ async def admin_list_users(limit: int = 15) -> List[Dict]:
 async def admin_user_ids() -> List[int]:
     rows = await _fetch("SELECT id FROM users")
     return [row["id"] for row in rows]
+
+
+async def admin_list_listings(limit: int = 30, status: str = "active") -> List[Dict]:
+    return await _fetch("""
+        SELECT l.id, l.user_id, l.title, l.description, l.drinks, l.snacks,
+               l.photo_id, l.location_name, l.max_people, l.status,
+               l.created_at, l.expires_at,
+               u.first_name, u.username
+        FROM listings l
+        JOIN users u ON u.id = l.user_id
+        WHERE l.status = $1
+        ORDER BY l.created_at DESC
+        LIMIT $2
+    """, status, limit)
+
+
+async def admin_list_user_listings(user_id: int, limit: int = 30) -> List[Dict]:
+    return await _fetch("""
+        SELECT id, user_id, title, description, drinks, snacks,
+               photo_id, location_name, max_people, status, created_at, expires_at
+        FROM listings
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+    """, user_id, limit)
